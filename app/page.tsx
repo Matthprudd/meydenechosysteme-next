@@ -43,18 +43,27 @@ export default function Home() {
 
   async function addCoins() {
 
-    if (!user) return
+  if (!user) return
 
-    await supabase
-      .from("coins_transactions")
-      .insert({
-        user_id: user.id,
-        amount: 5,
-        reason: "Tuned On Event"
-      })
+  await supabase
+    .from("coins_transactions")
+    .insert({
+      user_id: user.id,
+      amount: 5,
+      reason: "Tuned On Event"
+    })
 
-    window.location.reload()
-  }
+  await supabase
+    .from("live_activity_logs")
+    .insert({
+      user_id: user.id,
+      action: "Tuned On",
+      module: "Meyden Coins",
+      details: "+5 coins ajoutés"
+    })
+
+  window.location.reload()
+}
 
   if (loading) {
     return (
@@ -68,41 +77,6 @@ export default function Home() {
         fontSize: "24px"
       }}>
         Chargement Meyden OS...
-      </div>
-    )
-  }
-
-  if (!user) {
-    return (
-      <div style={{
-        background: "#000",
-        color: "#fff",
-        minHeight: "100vh",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        flexDirection: "column"
-      }}>
-        <h1 style={{
-          color: "#ff6600",
-          fontSize: "52px",
-          marginBottom: "20px"
-        }}>
-          MEYDEN ECHOSYSTEME
-        </h1>
-
-        <p>Aucun utilisateur connecté.</p>
-
-        <a
-          href="/auth"
-          style={{
-            marginTop: "20px",
-            color: "#ff6600",
-            fontSize: "22px"
-          }}
-        >
-          Aller au login
-        </a>
       </div>
     )
   }
