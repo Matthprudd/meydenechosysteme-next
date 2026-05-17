@@ -5,17 +5,47 @@ import { supabase } from '../lib/supabase'
 
 export default function HomePage() {
   const [user, setUser] = useState<any>(null)
+  const [profile, setProfile] = useState<any>(null)
 
   useEffect(() => {
-    checkUser()
+    initialize()
   }, [])
 
-  const checkUser = async () => {
+  const initialize = async () => {
     const {
       data: { user }
     } = await supabase.auth.getUser()
 
+    if (!user) {
+      return
+    }
+
     setUser(user)
+
+    const { data: existingProfile } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', user.id)
+      .single()
+
+    if (!existingProfile) {
+      await supabase.from('profiles').insert({
+        id: user.id,
+        email: user.email,
+        full_name: 'Utilisateur Meyden',
+        role: 'public'
+      })
+
+      const { data: newProfile } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', user.id)
+        .single()
+
+      setProfile(newProfile)
+    } else {
+      setProfile(existingProfile)
+    }
   }
 
   const logout = async () => {
@@ -83,16 +113,16 @@ export default function HomePage() {
       >
         <h2>Session active</h2>
 
+        <p>Email : {user.email}</p>
+
+        <p>ID : {user.id}</p>
+
         <p>
-          Email : {user.email}
+          Role : {profile?.role}
         </p>
 
         <p>
-          ID : {user.id}
-        </p>
-
-        <p>
-          Statut : CONNECTÉ
+          Nom : {profile?.full_name}
         </p>
 
         <button
