@@ -49,9 +49,10 @@ export default function Home() {
       .select("*")
       .eq("user_id", session.user.id)
       .order("created_at", { ascending: false })
-      .limit(10)
+      .limit(20)
 
     setContents(contentData || [])
+
     setLoading(false)
   }
 
@@ -100,17 +101,33 @@ export default function Home() {
     window.location.reload()
   }
 
+  async function runMonitorCycle() {
+    await supabase.rpc("process_monitor_cycle")
+
+    await supabase.from("live_activity_logs").insert({
+      user_id: user.id,
+      action: "Cycle Monitor",
+      module: "Meyden Monitor",
+      details: "Cycle 2h simulé lancé"
+    })
+
+    window.location.reload()
+  }
+
   if (loading) {
     return (
-      <div style={{
-        background: "#000",
-        color: "#ff6600",
-        minHeight: "100vh",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        fontSize: "24px"
-      }}>
+      <div
+        style={{
+          background: "#000",
+          color: "#ff6600",
+          minHeight: "100vh",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          fontSize: "24px",
+          fontFamily: "Arial"
+        }}
+      >
         Chargement Meyden OS...
       </div>
     )
@@ -118,23 +135,31 @@ export default function Home() {
 
   if (!user) {
     return (
-      <div style={{
-        background: "#000",
-        color: "#fff",
-        minHeight: "100vh",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        flexDirection: "column",
-        fontFamily: "Arial"
-      }}>
+      <div
+        style={{
+          background: "#000",
+          color: "#fff",
+          minHeight: "100vh",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          flexDirection: "column",
+          fontFamily: "Arial"
+        }}
+      >
         <h1 style={{ color: "#ff6600", fontSize: "42px" }}>
           MEYDEN ECHOSYSTEME
         </h1>
 
         <p>Aucun utilisateur connecté.</p>
 
-        <a href="/auth" style={{ color: "#ff6600", fontSize: "22px" }}>
+        <a
+          href="/auth"
+          style={{
+            color: "#ff6600",
+            fontSize: "22px"
+          }}
+        >
           Aller au login
         </a>
       </div>
@@ -142,30 +167,41 @@ export default function Home() {
   }
 
   return (
-    <div style={{
-      background: "#000",
-      color: "#fff",
-      minHeight: "100vh",
-      padding: "40px",
-      fontFamily: "Arial"
-    }}>
-      <h1 style={{
-        color: "#ff6600",
-        fontSize: "48px",
-        marginBottom: "30px",
-        fontWeight: "bold"
-      }}>
+    <div
+      style={{
+        background: "#000",
+        color: "#fff",
+        minHeight: "100vh",
+        padding: "40px",
+        fontFamily: "Arial"
+      }}
+    >
+      <h1
+        style={{
+          color: "#ff6600",
+          fontSize: "48px",
+          marginBottom: "30px",
+          fontWeight: "bold"
+        }}
+      >
         MEYDEN OS CORE
       </h1>
 
-      <div style={{
-        border: "1px solid #ff6600",
-        borderRadius: "20px",
-        padding: "25px",
-        marginBottom: "30px",
-        background: "#090909"
-      }}>
-        <h2 style={{ fontSize: "34px", marginBottom: "25px" }}>
+      <div
+        style={{
+          border: "1px solid #ff6600",
+          borderRadius: "20px",
+          padding: "25px",
+          marginBottom: "30px",
+          background: "#090909"
+        }}
+      >
+        <h2
+          style={{
+            fontSize: "34px",
+            marginBottom: "25px"
+          }}
+        >
           Session active
         </h2>
 
@@ -173,59 +209,77 @@ export default function Home() {
         <p>Role : {profile?.role}</p>
         <p>Nom : {profile?.nom}</p>
 
-        <p style={{
-          fontSize: "34px",
-          color: "#ff6600",
-          marginTop: "25px"
-        }}>
+        <p
+          style={{
+            fontSize: "34px",
+            color: "#ff6600",
+            marginTop: "25px"
+          }}
+        >
           Coins : {profile?.coins || 0}
         </p>
 
-        <button onClick={addCoins} style={{
-          background: "#ff6600",
-          border: "none",
-          padding: "16px 28px",
-          color: "#fff",
-          fontSize: "20px",
-          borderRadius: "10px",
-          marginTop: "20px",
-          cursor: "pointer"
-        }}>
+        <button
+          onClick={addCoins}
+          style={{
+            background: "#ff6600",
+            border: "none",
+            padding: "16px 28px",
+            color: "#fff",
+            fontSize: "20px",
+            borderRadius: "10px",
+            marginTop: "20px",
+            cursor: "pointer"
+          }}
+        >
           +5 Tuned On Coins
         </button>
 
         <br />
 
-        <button onClick={logout} style={{
-          marginTop: "20px",
-          background: "#111",
-          border: "1px solid #ff6600",
-          padding: "12px 22px",
-          color: "#fff",
-          fontSize: "18px",
-          borderRadius: "10px",
-          cursor: "pointer"
-        }}>
+        <button
+          onClick={logout}
+          style={{
+            marginTop: "20px",
+            background: "#111",
+            border: "1px solid #ff6600",
+            padding: "12px 22px",
+            color: "#fff",
+            fontSize: "18px",
+            borderRadius: "10px",
+            cursor: "pointer"
+          }}
+        >
           Logout
         </button>
       </div>
 
-      <div style={{
-        background: "#080808",
-        padding: "30px",
-        borderRadius: "20px",
-        marginTop: "30px"
-      }}>
-        <h2 style={{
-          color: "#ff6600",
-          fontSize: "32px",
-          marginBottom: "10px"
-        }}>
+      <div
+        style={{
+          background: "#080808",
+          padding: "30px",
+          borderRadius: "20px",
+          marginTop: "30px"
+        }}
+      >
+        <h2
+          style={{
+            color: "#ff6600",
+            fontSize: "32px",
+            marginBottom: "10px"
+          }}
+        >
           Meyden Monitor Content
         </h2>
 
-        <p style={{ color: "#aaa", marginBottom: "20px" }}>
-          Tout nouveau contenu entre automatiquement dans le monitor FANS. Le système le fera évoluer plus tard par cycles de 2 heures.
+        <p
+          style={{
+            color: "#aaa",
+            marginBottom: "20px"
+          }}
+        >
+          Tout nouveau contenu entre automatiquement dans le monitor FANS.
+          Le système le fera évoluer plus tard par cycles de 2 heures.
         </p>
 
         <input
@@ -244,75 +298,130 @@ export default function Home() {
           }}
         />
 
-        <button onClick={addMonitorContent} style={{
-          background: "#ff6600",
-          border: "none",
-          padding: "16px 28px",
-          color: "#fff",
-          borderRadius: "10px",
-          fontSize: "18px",
-          cursor: "pointer"
-        }}>
-          Ajouter au Monitor Fans
-        </button>
+        <div
+          style={{
+            display: "flex",
+            gap: "10px",
+            flexWrap: "wrap"
+          }}
+        >
+          <button
+            onClick={addMonitorContent}
+            style={{
+              background: "#ff6600",
+              border: "none",
+              padding: "16px 28px",
+              color: "#fff",
+              borderRadius: "10px",
+              fontSize: "18px",
+              cursor: "pointer"
+            }}
+          >
+            Ajouter au Monitor Fans
+          </button>
+
+          <button
+            onClick={runMonitorCycle}
+            style={{
+              background: "#111",
+              border: "1px solid #ff6600",
+              padding: "16px 28px",
+              color: "#fff",
+              borderRadius: "10px",
+              fontSize: "18px",
+              cursor: "pointer"
+            }}
+          >
+            Lancer cycle 2h test
+          </button>
+        </div>
 
         {contents.map((item) => (
-          <div key={item.id} style={{
-            marginTop: "20px",
-            padding: "20px",
-            background: "#111",
-            borderRadius: "12px"
-          }}>
-            <strong>{item.title}</strong>
+          <div
+            key={item.id}
+            style={{
+              marginTop: "20px",
+              padding: "20px",
+              background: "#111",
+              borderRadius: "12px"
+            }}
+          >
+            <strong
+              style={{
+                fontSize: "22px",
+                color: "#ff6600"
+              }}
+            >
+              {item.title}
+            </strong>
+
             <p>Monitor actuel : {item.monitor_level}</p>
             <p>Tuned On : {item.tuned_on}</p>
             <p>Watchtime : {item.watchtime_seconds}s</p>
-            <p>Score promotion : {item.promotion_score || 0}</p>
-            <p>État évolution : {item.evolution_state || "stable"}</p>
+            <p>Promotion Score : {item.promotion_score || 0}</p>
+            <p>État : {item.evolution_state || "stable"}</p>
           </div>
         ))}
       </div>
 
-      <div style={{
-        background: "#080808",
-        padding: "30px",
-        borderRadius: "20px",
-        marginTop: "30px"
-      }}>
-        <h2 style={{
-          color: "#ff6600",
-          fontSize: "32px",
-          marginBottom: "20px"
-        }}>
+      <div
+        style={{
+          background: "#080808",
+          padding: "30px",
+          borderRadius: "20px",
+          marginTop: "30px"
+        }}
+      >
+        <h2
+          style={{
+            color: "#ff6600",
+            fontSize: "32px",
+            marginBottom: "20px"
+          }}
+        >
           Live Activity Feed
         </h2>
 
         {logs.length === 0 && (
-          <p style={{ color: "#999" }}>Aucune activité enregistrée.</p>
+          <p style={{ color: "#999" }}>
+            Aucune activité enregistrée.
+          </p>
         )}
 
         {logs.map((log) => (
-          <div key={log.id} style={{
-            borderBottom: "1px solid #222",
-            padding: "15px 0"
-          }}>
-            <div style={{
-              color: "#ff6600",
-              fontSize: "22px",
-              fontWeight: "bold"
-            }}>
+          <div
+            key={log.id}
+            style={{
+              borderBottom: "1px solid #222",
+              padding: "15px 0"
+            }}
+          >
+            <div
+              style={{
+                color: "#ff6600",
+                fontSize: "22px",
+                fontWeight: "bold"
+              }}
+            >
               {log.action}
             </div>
 
-            <div style={{ color: "#fff", marginTop: "5px" }}>
+            <div
+              style={{
+                color: "#fff",
+                marginTop: "5px"
+              }}
+            >
               {log.module}
             </div>
 
-            <div style={{
-              color: "#777",
-              marginTop: "5px",
-              fontSize: "14px"
-            }}>
+            <div
+              style={{
+                color: "#777",
+                marginTop: "5px",
+                fontSize: "14px"
+              }}
+            >
               {log.details}
             </div>
           </div>
