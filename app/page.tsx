@@ -4,9 +4,7 @@ import { useEffect, useState } from "react"
 import { supabase } from "../lib/supabase"
 
 export default function Home() {
-
   const [user, setUser] = useState<any>(null)
-  const [profile, setProfile] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [logs, setLogs] = useState<any[]>([])
   const [contents, setContents] = useState<any[]>([])
@@ -17,7 +15,6 @@ export default function Home() {
   }, [])
 
   async function checkUser() {
-
     const {
       data: { session }
     } = await supabase.auth.getSession()
@@ -28,14 +25,6 @@ export default function Home() {
     }
 
     setUser(session.user)
-
-    const { data: profileData } = await supabase
-      .from("profiles")
-      .select("*")
-      .eq("id", session.user.id)
-      .single()
-
-    setProfile(profileData)
 
     const { data: logsData } = await supabase
       .from("live_activity_logs")
@@ -62,7 +51,6 @@ export default function Home() {
   }
 
   async function addMonitorContent() {
-
     if (!user || !newTitle.trim()) return
 
     await supabase.from("monitor_content").insert({
@@ -73,7 +61,9 @@ export default function Home() {
       status: "active",
       tuned_on: 0,
       views: 0,
-      watchtime_seconds: 0
+      watchtime_seconds: 0,
+      promotion_score: 0,
+      evolution_state: "stable"
     })
 
     await supabase.from("live_activity_logs").insert({
@@ -87,22 +77,23 @@ export default function Home() {
   }
 
   async function tunedOn(contentId: number) {
-
     if (!user) return
+
+    const selected = contents.find((c) => c.id === contentId)
+
+    if (!selected) return
+
+    const currentTunedOn = Number(selected.tuned_on || 0)
 
     await supabase.from("tuned_on_events").insert({
       content_id: contentId,
       user_id: user.id
     })
 
-    const selected = contents.find((c) => c.id === contentId)
-
-    if (!selected) return
-
     await supabase
       .from("monitor_content")
       .update({
-        tuned_on: (selected.tuned_on || 0) + 1
+        tuned_on: currentTunedOn + 1
       })
       .eq("id", contentId)
 
@@ -117,6 +108,7 @@ export default function Home() {
   }
 
   async function runMonitorCycle() {
+    if (!user) return
 
     await supabase.rpc("process_monitor_cycle")
 
@@ -132,48 +124,86 @@ export default function Home() {
 
   if (loading) {
     return (
-      <div style={{
-        background: "#000",
-        color: "#ff6600",
-        minHeight: "100vh",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        fontSize: "24px"
-      }}>
+      <div
+        style={{
+          background: "#000",
+          color: "#ff6600",
+          minHeight: "100vh",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          fontSize: "24px",
+          fontFamily: "Arial"
+        }}
+      >
         Chargement Meyden OS...
       </div>
     )
   }
 
-  return (
-    <div style={{
-      background: "#000",
-      color: "#fff",
-      minHeight: "100vh",
-      padding: "40px",
-      fontFamily: "Arial"
-    }}>
+  if (!user) {
+    return (
+      <div
+        style={{
+          background: "#000",
+          color: "#fff",
+          minHeight: "100vh",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          flexDirection: "column",
+          fontFamily: "Arial"
+        }}
+      >
+        <h1 style={{ color: "#ff6600", fontSize: "42px" }}>
+          MEYDEN ECHOSYSTEME
+        </h1>
 
-      <h1 style={{
-        color: "#ff6600",
-        fontSize: "52px",
-        marginBottom: "30px"
-      }}>
+        <p>Aucun utilisateur connecté.</p>
+
+        <a href="/auth" style={{ color: "#ff6600", fontSize: "22px" }}>
+          Aller au login
+        </a>
+      </div>
+    )
+  }
+
+  return (
+    <div
+      style={{
+        background: "#000",
+        color: "#fff",
+        minHeight: "100vh",
+        padding: "40px",
+        fontFamily: "Arial"
+      }}
+    >
+      <h1
+        style={{
+          color: "#ff6600",
+          fontSize: "52px",
+          marginBottom: "30px",
+          fontWeight: "bold"
+        }}
+      >
         MEYDEN MONITOR
       </h1>
 
-      <div style={{
-        background: "#080808",
-        padding: "30px",
-        borderRadius: "20px"
-      }}>
+      <div
+        style={{
+          background: "#080808",
+          padding: "30px",
+          borderRadius: "20px",
+          marginBottom: "30px"
+        }}
+      >
+        <h2 style={{ color: "#ff6600" }}>Nouveau contenu</h2>
 
-        <h2 style={{
-          color: "#ff6600"
-        }}>
-          Nouveau contenu
-        </h2>
+        <p style={{ color: "#aaa", lineHeight: 1.5 }}>
+          Tout contenu entre automatiquement dans le monitor Fans. Les Tuned On
+          font progresser le contenu. Les coins sont générés seulement quand un
+          contenu atteint Petit public, Grand public ou International.
+        </p>
 
         <input
           value={newTitle}
@@ -187,16 +217,12 @@ export default function Home() {
             background: "#111",
             color: "#fff",
             border: "1px solid #ff6600",
-            borderRadius: "10px"
+            borderRadius: "10px",
+            boxSizing: "border-box"
           }}
         />
 
-        <div style={{
-          display: "flex",
-          gap: "10px",
-          flexWrap: "wrap"
-        }}>
-
+        <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
           <button
             onClick={addMonitorContent}
             style={{
@@ -227,48 +253,45 @@ export default function Home() {
             Lancer cycle 2h test
           </button>
 
+          <button
+            onClick={logout}
+            style={{
+              background: "#111",
+              border: "1px solid #555",
+              padding: "16px 28px",
+              color: "#fff",
+              borderRadius: "10px",
+              fontSize: "18px",
+              cursor: "pointer"
+            }}
+          >
+            Logout
+          </button>
         </div>
-
       </div>
 
-      <div style={{
-        marginTop: "30px",
-        display: "grid",
-        gap: "20px"
-      }}>
-
+      <div style={{ display: "grid", gap: "20px" }}>
         {contents.map((item) => (
-
           <div
             key={item.id}
             style={{
               background: "#080808",
               padding: "25px",
-              borderRadius: "20px"
+              borderRadius: "20px",
+              border:
+                item.monitor_level === "international"
+                  ? "1px solid #ff6600"
+                  : "1px solid transparent"
             }}
           >
+            <h2 style={{ color: "#ff6600" }}>{item.title}</h2>
 
-            <h2 style={{
-              color: "#ff6600"
-            }}>
-              {item.title}
-            </h2>
-
-            <p>
-              Monitor : {item.monitor_level}
-            </p>
-
-            <p>
-              Tuned On : {item.tuned_on}
-            </p>
-
-            <p>
-              Promotion Score : {item.promotion_score || 0}
-            </p>
-
-            <p>
-              État : {item.evolution_state || "stable"}
-            </p>
+            <p>Monitor : {item.monitor_level}</p>
+            <p>Tuned On : {item.tuned_on || 0}</p>
+            <p>Views : {item.views || 0}</p>
+            <p>Watchtime : {item.watchtime_seconds || 0}s</p>
+            <p>Promotion Score : {item.promotion_score || 0}</p>
+            <p>État : {item.evolution_state || "stable"}</p>
 
             <button
               onClick={() => tunedOn(item.id)}
@@ -279,33 +302,31 @@ export default function Home() {
                 padding: "12px 20px",
                 color: "#fff",
                 borderRadius: "10px",
-                cursor: "pointer"
+                cursor: "pointer",
+                fontSize: "16px"
               }}
             >
               ❤️ Tuned On
             </button>
-
           </div>
-
         ))}
-
       </div>
 
-      <div style={{
-        background: "#080808",
-        padding: "30px",
-        borderRadius: "20px",
-        marginTop: "30px"
-      }}>
+      <div
+        style={{
+          background: "#080808",
+          padding: "30px",
+          borderRadius: "20px",
+          marginTop: "30px"
+        }}
+      >
+        <h2 style={{ color: "#ff6600" }}>Live Activity Feed</h2>
 
-        <h2 style={{
-          color: "#ff6600"
-        }}>
-          Live Activity Feed
-        </h2>
+        {logs.length === 0 && (
+          <p style={{ color: "#999" }}>Aucune activité enregistrée.</p>
+        )}
 
         {logs.map((log) => (
-
           <div
             key={log.id}
             style={{
@@ -313,30 +334,14 @@ export default function Home() {
               padding: "12px 0"
             }}
           >
-
-            <div style={{
-              color: "#ff6600"
-            }}>
-              {log.action}
-            </div>
-
-            <div>
-              {log.module}
-            </div>
-
-            <div style={{
-              color: "#777",
-              fontSize: "14px"
-            }}>
+            <div style={{ color: "#ff6600" }}>{log.action}</div>
+            <div>{log.module}</div>
+            <div style={{ color: "#777", fontSize: "14px" }}>
               {log.details}
             </div>
-
           </div>
-
         ))}
-
       </div>
-
     </div>
   )
 }
