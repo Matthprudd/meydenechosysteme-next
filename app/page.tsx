@@ -29,6 +29,7 @@ export default function Home() {
     const { data: logsData } = await supabase
       .from("live_activity_logs")
       .select("*")
+      .eq("user_id", session.user.id)
       .order("created_at", { ascending: false })
       .limit(20)
 
@@ -37,11 +38,11 @@ export default function Home() {
     const { data: contentData } = await supabase
       .from("monitor_content")
       .select("*")
+      .eq("user_id", session.user.id)
       .order("created_at", { ascending: false })
       .limit(20)
 
     setContents(contentData || [])
-
     setLoading(false)
   }
 
@@ -53,7 +54,7 @@ export default function Home() {
   async function addMonitorContent() {
     if (!user || !newTitle.trim()) return
 
-    await supabase.from("monitor_content").insert({
+    const { error } = await supabase.from("monitor_content").insert({
       user_id: user.id,
       title: newTitle.trim(),
       content_type: "video",
@@ -65,6 +66,11 @@ export default function Home() {
       promotion_score: 0,
       evolution_state: "stable"
     })
+
+    if (error) {
+      alert(error.message)
+      return
+    }
 
     await supabase.from("live_activity_logs").insert({
       user_id: user.id,
@@ -80,15 +86,19 @@ export default function Home() {
     if (!user) return
 
     const selected = contents.find((c) => c.id === contentId)
-
     if (!selected) return
 
     const currentTunedOn = Number(selected.tuned_on || 0)
 
-    await supabase.from("tuned_on_events").insert({
+    const { error } = await supabase.from("tuned_on_events").insert({
       content_id: contentId,
       user_id: user.id
     })
+
+    if (error) {
+      alert(error.message)
+      return
+    }
 
     await supabase
       .from("monitor_content")
@@ -110,7 +120,12 @@ export default function Home() {
   async function runMonitorCycle() {
     if (!user) return
 
-    await supabase.rpc("process_monitor_cycle")
+    const { error } = await supabase.rpc("process_monitor_cycle")
+
+    if (error) {
+      alert(error.message)
+      return
+    }
 
     await supabase.from("live_activity_logs").insert({
       user_id: user.id,
@@ -124,18 +139,16 @@ export default function Home() {
 
   if (loading) {
     return (
-      <div
-        style={{
-          background: "#000",
-          color: "#ff6600",
-          minHeight: "100vh",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          fontSize: "24px",
-          fontFamily: "Arial"
-        }}
-      >
+      <div style={{
+        background: "#000",
+        color: "#ff6600",
+        minHeight: "100vh",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        fontSize: "24px",
+        fontFamily: "Arial"
+      }}>
         Chargement Meyden OS...
       </div>
     )
@@ -143,18 +156,16 @@ export default function Home() {
 
   if (!user) {
     return (
-      <div
-        style={{
-          background: "#000",
-          color: "#fff",
-          minHeight: "100vh",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          flexDirection: "column",
-          fontFamily: "Arial"
-        }}
-      >
+      <div style={{
+        background: "#000",
+        color: "#fff",
+        minHeight: "100vh",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        flexDirection: "column",
+        fontFamily: "Arial"
+      }}>
         <h1 style={{ color: "#ff6600", fontSize: "42px" }}>
           MEYDEN ECHOSYSTEME
         </h1>
@@ -169,39 +180,33 @@ export default function Home() {
   }
 
   return (
-    <div
-      style={{
-        background: "#000",
-        color: "#fff",
-        minHeight: "100vh",
-        padding: "40px",
-        fontFamily: "Arial"
-      }}
-    >
-      <h1
-        style={{
-          color: "#ff6600",
-          fontSize: "52px",
-          marginBottom: "30px",
-          fontWeight: "bold"
-        }}
-      >
+    <main style={{
+      background: "#000",
+      color: "#fff",
+      minHeight: "100vh",
+      padding: "40px",
+      fontFamily: "Arial"
+    }}>
+      <h1 style={{
+        color: "#ff6600",
+        fontSize: "52px",
+        marginBottom: "30px",
+        fontWeight: "bold"
+      }}>
         MEYDEN MONITOR
       </h1>
 
-      <div
-        style={{
-          background: "#080808",
-          padding: "30px",
-          borderRadius: "20px",
-          marginBottom: "30px"
-        }}
-      >
+      <section style={{
+        background: "#080808",
+        padding: "30px",
+        borderRadius: "20px",
+        marginBottom: "30px"
+      }}>
         <h2 style={{ color: "#ff6600" }}>Nouveau contenu</h2>
 
         <p style={{ color: "#aaa", lineHeight: 1.5 }}>
           Tout contenu entre automatiquement dans le monitor Fans. Les Tuned On
-          font progresser le contenu. Les coins sont générés seulement quand un
+          font progresser le contenu. Les coins sont générés seulement quand le
           contenu atteint Petit public, Grand public ou International.
         </p>
 
@@ -222,7 +227,11 @@ export default function Home() {
           }}
         />
 
-        <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+        <div style={{
+          display: "flex",
+          gap: "10px",
+          flexWrap: "wrap"
+        }}>
           <button
             onClick={addMonitorContent}
             style={{
@@ -268,9 +277,23 @@ export default function Home() {
             Logout
           </button>
         </div>
-      </div>
+      </section>
 
-      <div style={{ display: "grid", gap: "20px" }}>
+      <section style={{
+        display: "grid",
+        gap: "20px"
+      }}>
+        {contents.length === 0 && (
+          <div style={{
+            background: "#080808",
+            padding: "25px",
+            borderRadius: "20px",
+            color: "#aaa"
+          }}>
+            Aucun contenu Monitor pour l’instant.
+          </div>
+        )}
+
         {contents.map((item) => (
           <div
             key={item.id}
@@ -284,7 +307,9 @@ export default function Home() {
                   : "1px solid transparent"
             }}
           >
-            <h2 style={{ color: "#ff6600" }}>{item.title}</h2>
+            <h2 style={{ color: "#ff6600" }}>
+              {item.title}
+            </h2>
 
             <p>Monitor : {item.monitor_level}</p>
             <p>Tuned On : {item.tuned_on || 0}</p>
@@ -310,20 +335,22 @@ export default function Home() {
             </button>
           </div>
         ))}
-      </div>
+      </section>
 
-      <div
-        style={{
-          background: "#080808",
-          padding: "30px",
-          borderRadius: "20px",
-          marginTop: "30px"
-        }}
-      >
-        <h2 style={{ color: "#ff6600" }}>Live Activity Feed</h2>
+      <section style={{
+        background: "#080808",
+        padding: "30px",
+        borderRadius: "20px",
+        marginTop: "30px"
+      }}>
+        <h2 style={{ color: "#ff6600" }}>
+          Live Activity Feed
+        </h2>
 
         {logs.length === 0 && (
-          <p style={{ color: "#999" }}>Aucune activité enregistrée.</p>
+          <p style={{ color: "#999" }}>
+            Aucune activité enregistrée.
+          </p>
         )}
 
         {logs.map((log) => (
@@ -334,14 +361,23 @@ export default function Home() {
               padding: "12px 0"
             }}
           >
-            <div style={{ color: "#ff6600" }}>{log.action}</div>
-            <div>{log.module}</div>
-            <div style={{ color: "#777", fontSize: "14px" }}>
+            <div style={{ color: "#ff6600" }}>
+              {log.action}
+            </div>
+
+            <div>
+              {log.module}
+            </div>
+
+            <div style={{
+              color: "#777",
+              fontSize: "14px"
+            }}>
               {log.details}
             </div>
           </div>
         ))}
-      </div>
-    </div>
+      </section>
+    </main>
   )
 }
