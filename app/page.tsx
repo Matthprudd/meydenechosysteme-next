@@ -8,7 +8,7 @@ export default function Home() {
   const [user, setUser] = useState<any>(null)
   const [profile, setProfile] = useState<any>(null)
   const [loading, setLoading] = useState(true)
-
+  const [logs, setLogs] = useState<any[]>([])
   useEffect(() => {
     checkUser()
   }, [])
@@ -33,6 +33,14 @@ export default function Home() {
       .single()
 
     setProfile(data)
+    const { data: logsData } = await supabase
+  .from("live_activity_logs")
+  .select("*")
+  .eq("user_id", session.user.id)
+  .order("created_at", { ascending: false })
+  .limit(10)
+
+setLogs(logsData || [])
     setLoading(false)
   }
 
@@ -203,6 +211,61 @@ export default function Home() {
 
       </div>
 
+  <div style={{
+  background: "#080808",
+  padding: "30px",
+  borderRadius: "20px",
+  marginTop: "30px"
+}}>
+
+  <h2 style={{
+    color: "#ff6600",
+    fontSize: "32px",
+    marginBottom: "20px"
+  }}>
+    Live Activity Feed
+  </h2>
+
+  {logs.length === 0 && (
+    <p style={{ color: "#999" }}>
+      Aucune activité enregistrée.
+    </p>
+  )}
+
+  {logs.map((log) => (
+    <div
+      key={log.id}
+      style={{
+        borderBottom: "1px solid #222",
+        padding: "15px 0"
+      }}
+    >
+      <div style={{
+        color: "#ff6600",
+        fontSize: "22px",
+        fontWeight: "bold"
+      }}>
+        {log.action}
+      </div>
+
+      <div style={{
+        color: "#fff",
+        marginTop: "5px"
+      }}>
+        {log.module}
+      </div>
+
+      <div style={{
+        color: "#777",
+        marginTop: "5px",
+        fontSize: "14px"
+      }}>
+        {log.details}
+      </div>
+    </div>
+  ))}
+
+</div>
     </div>
   )
 }
