@@ -9,6 +9,8 @@ export default function Home() {
   const [profile, setProfile] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [logs, setLogs] = useState<any[]>([])
+  const [contents, setContents] = useState<any[]>([])
+  const [newTitle, setNewTitle] = useState("")
   useEffect(() => {
     checkUser()
   }, [])
@@ -41,6 +43,66 @@ export default function Home() {
   .limit(10)
 
 setLogs(logsData || [])
+    const { data: contentData } = await supabase
+  .from("monitor_content")
+  .select("*")
+  .eq("user_id", session.user.id)
+  .order("created_at", { ascending: false })
+  .limit(10)
+
+setContents(contentData || [])
+    <div style={{
+  background: "#080808",
+  padding: "30px",
+  borderRadius: "20px",
+  marginTop: "30px"
+}}>
+  <h2 style={{ color: "#ff6600" }}>Meyden Monitor Content</h2>
+
+  <input
+    value={newTitle}
+    onChange={(e) => setNewTitle(e.target.value)}
+    placeholder="Titre du contenu"
+    style={{
+      width: "100%",
+      padding: "16px",
+      marginTop: "15px",
+      marginBottom: "15px",
+      background: "#111",
+      color: "#fff",
+      border: "1px solid #ff6600",
+      borderRadius: "10px"
+    }}
+  />
+
+  <button
+    onClick={addMonitorContent}
+    style={{
+      background: "#ff6600",
+      border: "none",
+      padding: "16px 28px",
+      color: "#fff",
+      borderRadius: "10px",
+      fontSize: "18px"
+    }}
+  >
+    Ajouter au Monitor
+  </button>
+
+  {contents.map((item) => (
+    <div key={item.id} style={{
+      marginTop: "20px",
+      padding: "20px",
+      background: "#111",
+      borderRadius: "12px"
+    }}>
+      <strong>{item.title}</strong>
+      <p>Monitor : {item.monitor_level}</p>
+      <p>Tuned On : {item.tuned_on}</p>
+      <p>Watchtime : {item.watchtime_seconds}s</p>
+    </div>
+  ))}
+</div>
     setLoading(false)
   }
 
