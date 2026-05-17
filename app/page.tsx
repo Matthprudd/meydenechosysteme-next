@@ -1,97 +1,234 @@
-'use client'
+"use client"
 
-import { useEffect, useState } from 'react'
-import { supabase } from '../lib/supabase'
+import { useEffect, useState } from "react"
+import { supabase } from "../lib/supabase"
 
-export default function HomePage() {
+export default function Home() {
+
   const [user, setUser] = useState<any>(null)
   const [profile, setProfile] = useState<any>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    initialize()
+    checkUser()
   }, [])
 
-  const initialize = async () => {
-    const {
-      data: { user }
-    } = await supabase.auth.getUser()
+  async function checkUser() {
 
-    if (!user) {
+    const {
+      data: { session }
+    } = await supabase.auth.getSession()
+
+    if (!session?.user) {
       setLoading(false)
       return
     }
 
-    setUser(user)
+    setUser(session.user)
 
-    const { data: profileData } = await supabase
-      .from('profiles')
-      .select('id,email,nom,role,meyden_level,coins,status')
-      .eq('id', user.id)
+    const { data } = await supabase
+      .from("profiles")
+      .select("*")
+      .eq("id", session.user.id)
       .single()
 
-    setProfile(profileData)
+    setProfile(data)
     setLoading(false)
   }
 
-  const logout = async () => {
+  async function logout() {
     await supabase.auth.signOut()
-    location.reload()
+    window.location.reload()
+  }
+
+  async function addCoins() {
+
+    if (!user) return
+
+    await supabase
+      .from("coins_transactions")
+      .insert({
+        user_id: user.id,
+        amount: 5,
+        reason: "Tuned On Event"
+      })
+
+    window.location.reload()
   }
 
   if (loading) {
     return (
-      <main style={{ minHeight: '100vh', background: '#050505', color: 'white', padding: 40 }}>
-        Chargement Meyden...
-      </main>
+      <div style={{
+        background: "#000",
+        color: "#ff6600",
+        minHeight: "100vh",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        fontSize: "24px"
+      }}>
+        Chargement Meyden OS...
+      </div>
     )
   }
 
   if (!user) {
     return (
-      <main style={{ minHeight: '100vh', background: '#050505', color: 'white', padding: 40, fontFamily: 'Arial' }}>
-        <h1 style={{ color: '#ff6600' }}>MEYDEN ECHOSYSTEME</h1>
+      <div style={{
+        background: "#000",
+        color: "#fff",
+        minHeight: "100vh",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        flexDirection: "column"
+      }}>
+        <h1 style={{
+          color: "#ff6600",
+          fontSize: "52px",
+          marginBottom: "20px"
+        }}>
+          MEYDEN ECHOSYSTEME
+        </h1>
+
         <p>Aucun utilisateur connecté.</p>
-        <a href="/auth" style={{ color: '#ff6600' }}>Aller au login</a>
-      </main>
+
+        <a
+          href="/auth"
+          style={{
+            marginTop: "20px",
+            color: "#ff6600",
+            fontSize: "22px"
+          }}
+        >
+          Aller au login
+        </a>
+      </div>
     )
   }
 
   return (
-    <main style={{ minHeight: '100vh', background: '#050505', color: 'white', padding: 40, fontFamily: 'Arial' }}>
-      <h1 style={{ color: '#ff6600' }}>MEYDEN OS CORE</h1>
+    <div style={{
+      background: "#000",
+      color: "#fff",
+      minHeight: "100vh",
+      padding: "60px"
+    }}>
 
-      <section style={{ marginTop: 30, padding: 25, border: '1px solid #ff6600', borderRadius: 14, background: '#111' }}>
-        <h2>Profil Meyden Live</h2>
-        <p>Email : {profile?.email}</p>
-        <p>Nom : {profile?.nom}</p>
-        <p>Role : {profile?.role}</p>
-        <p>Niveau Meyden : {profile?.meyden_level}</p>
-        <p>Coins : {profile?.coins}</p>
-        <p>Status : {profile?.status}</p>
+      <h1 style={{
+        color: "#ff6600",
+        fontSize: "64px",
+        marginBottom: "40px",
+        fontWeight: "bold"
+      }}>
+        MEYDEN OS CORE
+      </h1>
 
-        <button onClick={logout} style={{ marginTop: 20, padding: 12, background: '#ff6600', border: 'none', color: 'white' }}>
+      <div style={{
+        border: "1px solid #ff6600",
+        borderRadius: "20px",
+        padding: "30px",
+        marginBottom: "30px",
+        background: "#090909"
+      }}>
+
+        <h2 style={{
+          fontSize: "48px",
+          marginBottom: "30px"
+        }}>
+          Session active
+        </h2>
+
+        <p style={{ fontSize: "30px" }}>
+          Email : {user.email}
+        </p>
+
+        <p style={{ fontSize: "30px" }}>
+          Role : {profile?.role}
+        </p>
+
+        <p style={{ fontSize: "30px" }}>
+          Nom : {profile?.nom}
+        </p>
+
+        <p style={{
+          fontSize: "42px",
+          color: "#ff6600",
+          marginTop: "30px"
+        }}>
+          Coins : {profile?.coins || 0}
+        </p>
+
+        <button
+          onClick={addCoins}
+          style={{
+            background: "#ff6600",
+            border: "none",
+            padding: "20px 40px",
+            color: "#fff",
+            fontSize: "26px",
+            borderRadius: "10px",
+            marginTop: "30px",
+            cursor: "pointer"
+          }}
+        >
+          +5 Tuned On Coins
+        </button>
+
+        <br />
+
+        <button
+          onClick={logout}
+          style={{
+            marginTop: "30px",
+            background: "#111",
+            border: "1px solid #ff6600",
+            padding: "15px 30px",
+            color: "#fff",
+            fontSize: "20px",
+            borderRadius: "10px",
+            cursor: "pointer"
+          }}
+        >
           Logout
         </button>
-      </section>
 
-      <section style={{ marginTop: 30, display: 'grid', gap: 18 }}>
-        <div style={{ padding: 22, background: '#111', borderRadius: 14 }}>
-          Meyden Monitor — connecté au profil utilisateur
+      </div>
+
+      <div style={{
+        display: "grid",
+        gap: "20px"
+      }}>
+
+        <div style={{
+          background: "#080808",
+          padding: "30px",
+          borderRadius: "20px",
+          fontSize: "28px"
+        }}>
+          Meyden Monitor
         </div>
 
-        <div style={{ padding: 22, background: '#111', borderRadius: 14 }}>
-          Meyden Coins — solde live : {profile?.coins}
+        <div style={{
+          background: "#080808",
+          padding: "30px",
+          borderRadius: "20px",
+          fontSize: "28px"
+        }}>
+          Creator Dashboard
         </div>
 
-        <div style={{ padding: 22, background: '#111', borderRadius: 14 }}>
-          Creator Dashboard — rôle actuel : {profile?.role}
+        <div style={{
+          background: "#080808",
+          padding: "30px",
+          borderRadius: "20px",
+          fontSize: "28px"
+        }}>
+          Activity Logs
         </div>
 
-        <div style={{ padding: 22, background: '#111', borderRadius: 14 }}>
-          Activity Logs — statut : {profile?.status}
-        </div>
-      </section>
-    </main>
+      </div>
+
+    </div>
   )
 }
