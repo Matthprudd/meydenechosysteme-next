@@ -1,65 +1,162 @@
-export default function Home() {
+'use client'
+
+import { useEffect, useState } from 'react'
+import { supabase } from '../lib/supabase'
+
+export default function HomePage() {
+  const [user, setUser] = useState<any>(null)
+
+  useEffect(() => {
+    checkUser()
+  }, [])
+
+  const checkUser = async () => {
+    const {
+      data: { user }
+    } = await supabase.auth.getUser()
+
+    setUser(user)
+  }
+
+  const logout = async () => {
+    await supabase.auth.signOut()
+    location.reload()
+  }
+
+  if (!user) {
+    return (
+      <div
+        style={{
+          minHeight: '100vh',
+          background: '#050505',
+          color: 'white',
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          fontFamily: 'Arial'
+        }}
+      >
+        <div>
+          <h1 style={{ color: '#ff6600' }}>
+            MEYDEN ECHOSYSTEME
+          </h1>
+
+          <p>
+            Aucun utilisateur connecté.
+          </p>
+
+          <a
+            href="/auth"
+            style={{
+              color: '#ff6600'
+            }}
+          >
+            Aller au login
+          </a>
+        </div>
+      </div>
+    )
+  }
+
   return (
-    <main
+    <div
       style={{
-        minHeight: "100vh",
-        background: "linear-gradient(180deg,#050505 0%,#101014 100%)",
-        color: "white",
-        fontFamily: "Arial, sans-serif",
-        padding: "40px"
+        minHeight: '100vh',
+        background: '#050505',
+        color: 'white',
+        padding: 40,
+        fontFamily: 'Arial'
       }}
     >
-      <h1
-        style={{
-          fontSize: "48px",
-          color: "#ff6a00",
-          marginBottom: "20px"
-        }}
-      >
-        MEYDEN ECHOSYSTEME
+      <h1 style={{ color: '#ff6600' }}>
+        MEYDEN OS CORE
       </h1>
 
-      <p
+      <div
         style={{
-          fontSize: "18px",
-          opacity: 0.8,
-          marginBottom: "40px"
+          marginTop: 30,
+          padding: 20,
+          border: '1px solid #ff6600',
+          borderRadius: 12,
+          background: '#111'
         }}
       >
-        Backend Supabase connecté. Infrastructure Meyden active.
-      </p>
+        <h2>Session active</h2>
 
-      <section
+        <p>
+          Email : {user.email}
+        </p>
+
+        <p>
+          ID : {user.id}
+        </p>
+
+        <p>
+          Statut : CONNECTÉ
+        </p>
+
+        <button
+          onClick={logout}
+          style={{
+            marginTop: 20,
+            padding: 12,
+            background: '#ff6600',
+            border: 'none',
+            color: 'white',
+            cursor: 'pointer'
+          }}
+        >
+          Logout
+        </button>
+      </div>
+
+      <div
         style={{
-          border: "1px solid rgba(255,106,0,0.4)",
-          borderRadius: "20px",
-          padding: "30px",
-          background: "rgba(255,255,255,0.04)"
+          marginTop: 30,
+          display: 'grid',
+          gap: 20
         }}
       >
-        <h2
+        <div
           style={{
-            color: "#ff6a00",
-            marginBottom: "20px"
+            padding: 20,
+            background: '#111',
+            borderRadius: 12
           }}
         >
-          Meyden OS Core
-        </h2>
+          Meyden Monitor
+        </div>
 
-        <ul
+        <div
           style={{
-            lineHeight: "2"
+            padding: 20,
+            background: '#111',
+            borderRadius: 12
           }}
         >
-          <li>Connexion Supabase</li>
-          <li>Authentification Meyden</li>
-          <li>Base de données active</li>
-          <li>Coins système</li>
-          <li>Monitor architecture</li>
-          <li>Dashboard créateur</li>
-          <li>Logs activité plateforme</li>
-        </ul>
-      </section>
-    </main>
+          Meyden Coins
+        </div>
+
+        <div
+          style={{
+            padding: 20,
+            background: '#111',
+            borderRadius: 12
+          }}
+        >
+          Creator Dashboard
+        </div>
+
+        <div
+          style={{
+            padding: 20,
+            background: '#111',
+            borderRadius: 12
+          }}
+        >
+          Activity Logs
+        </div>
+      </div>
+    </div>
   )
 }
