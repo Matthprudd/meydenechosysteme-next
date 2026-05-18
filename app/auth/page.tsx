@@ -1,40 +1,65 @@
 'use client'
 
 import { useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { supabase } from '../../lib/supabase'
 
 export default function AuthPage() {
+  const router = useRouter()
+
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [loading, setLoading] = useState(false)
 
-  const signUp = async () => {
+  async function signUp() {
+    if (!email || !password) {
+      alert('Entre ton courriel et ton mot de passe.')
+      return
+    }
+
+    setLoading(true)
+
     const { error } = await supabase.auth.signUp({
       email,
       password
     })
 
+    setLoading(false)
+
     if (error) {
       alert(error.message)
-    } else {
-      alert('Compte créé.')
+      return
     }
+
+    alert('Compte créé. Tu peux maintenant te connecter.')
   }
 
-  const signIn = async () => {
+  async function signIn() {
+    if (!email || !password) {
+      alert('Entre ton courriel et ton mot de passe.')
+      return
+    }
+
+    setLoading(true)
+
     const { error } = await supabase.auth.signInWithPassword({
       email,
       password
     })
 
+    setLoading(false)
+
     if (error) {
       alert(error.message)
-    } else {
-      alert('Connexion réussie.')
+      return
     }
+
+    router.push('/')
+    router.refresh()
   }
 
   return (
-    <div
+    <main
       style={{
         minHeight: '100vh',
         background: '#050505',
@@ -42,82 +67,98 @@ export default function AuthPage() {
         display: 'flex',
         justifyContent: 'center',
         alignItems: 'center',
-        fontFamily: 'Arial'
+        fontFamily: 'Arial',
+        padding: 20
       }}
     >
-      <div
+      <section
         style={{
-          width: 320,
+          width: '100%',
+          maxWidth: 380,
           padding: 30,
           border: '1px solid #ff6600',
-          borderRadius: 12,
+          borderRadius: 16,
           background: '#111'
         }}
       >
-        <h1 style={{ color: '#ff6600' }}>
+        <h1 style={{ color: '#ff6600', marginBottom: 10 }}>
           MEYDEN LOGIN
         </h1>
 
+        <p style={{ color: '#aaa' }}>
+          Connexion au Meyden Monitor.
+        </p>
+
         <input
           type="email"
-          placeholder="Email"
+          placeholder="Courriel"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           style={{
             width: '100%',
-            padding: 12,
+            padding: 14,
             marginTop: 20,
             background: '#222',
-            border: 'none',
-            color: 'white'
+            border: '1px solid #333',
+            borderRadius: 8,
+            color: 'white',
+            boxSizing: 'border-box'
           }}
         />
 
         <input
           type="password"
-          placeholder="Mot de passe"
+          placeholder="Mot de passe / NIP"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           style={{
             width: '100%',
-            padding: 12,
+            padding: 14,
             marginTop: 10,
             background: '#222',
-            border: 'none',
-            color: 'white'
+            border: '1px solid #333',
+            borderRadius: 8,
+            color: 'white',
+            boxSizing: 'border-box'
           }}
         />
 
         <button
           onClick={signIn}
+          disabled={loading}
           style={{
             width: '100%',
-            padding: 12,
+            padding: 14,
             marginTop: 20,
             background: '#ff6600',
             border: 'none',
+            borderRadius: 8,
             color: 'white',
-            cursor: 'pointer'
+            cursor: 'pointer',
+            opacity: loading ? 0.6 : 1
           }}
         >
-          Connexion
+          {loading ? 'Connexion...' : 'Connexion'}
         </button>
 
         <button
           onClick={signUp}
+          disabled={loading}
           style={{
             width: '100%',
-            padding: 12,
+            padding: 14,
             marginTop: 10,
             background: '#333',
             border: 'none',
+            borderRadius: 8,
             color: 'white',
-            cursor: 'pointer'
+            cursor: 'pointer',
+            opacity: loading ? 0.6 : 1
           }}
         >
           Créer un compte
         </button>
-      </div>
-    </div>
+      </section>
+    </main>
   )
 }
