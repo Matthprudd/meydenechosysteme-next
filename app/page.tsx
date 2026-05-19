@@ -9,17 +9,24 @@ const MONITORS = ["fans", "public_cible", "petit_public", "grand_public", "inter
 export default function Home() {
   const [user, setUser] = useState<any>(null)
   const [loading, setLoading] = useState(true)
+
   const [logs, setLogs] = useState<any[]>([])
   const [contents, setContents] = useState<any[]>([])
   const [monitorSystem, setMonitorSystem] = useState<any>(null)
+
   const [activeMonitor, setActiveMonitor] = useState("fans")
   const [currentIndex, setCurrentIndex] = useState(0)
+
   const [newTitle, setNewTitle] = useState("")
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [uploading, setUploading] = useState(false)
   const [uploadStatus, setUploadStatus] = useState("")
+
   const [volume, setVolume] = useState(0.7)
   const [muted, setMuted] = useState(false)
+
+  const [watchStart, setWatchStart] = useState<number | null>(null)
+  const [alreadyTracked, setAlreadyTracked] = useState(false)
 
   const mediaRef = useRef<HTMLVideoElement | HTMLAudioElement | null>(null)
 
@@ -45,12 +52,13 @@ export default function Home() {
         ? Number(monitorSystem?.average_seconds_per_content || 15)
         : 15
 
-    const timer = setTimeout(() => {
+    const timer = setTimeout(async () => {
+      await trackWatchtime(false)
       goNextContent()
     }, seconds * 1000)
 
     return () => clearTimeout(timer)
-  }, [currentIndex, filteredContents.length, activeMonitor, monitorSystem])
+  }, [currentIndex, filteredContents.length, activeMonitor, monitorSystem, watchStart])
 
   useEffect(() => {
     if (mediaRef.current) {
@@ -58,6 +66,13 @@ export default function Home() {
       mediaRef.current.muted = muted
     }
   }, [volume, muted, currentContent])
+
+  useEffect(() => {
+    if (!currentContent) return
+
+    setWatchStart(Date.now())
+    setAlreadyTracked(false)
+  }, [currentContent])
 
   function goNextContent() {
     setCurrentIndex((prev) => {
@@ -114,6 +129,69 @@ export default function Home() {
       totalCoinsGenerated: contents.reduce((sum, item) => sum + Number(item.coins_generated || 0), 0)
     }
   }, [contents])
+
+  async function trackWatchtime(completed = false) {
+    if (!user || !currentContent || !watchStart || alreadyTracked) return
+
+    try {
+      const watchedSeconds = Math.max(
+        1,
+        Math.floor((Date.now() - watchStart) / 1000)
+      )
+
+      const media = mediaRef.current
+      let duration = 0
+
+      if (media && !isNaN(media.duration)) {
+        duration = media.duration
+      }
+
+      let retention = 0
+
+      if (duration > 0) {
+        retention = Math.min(
+          100,
+          Math.floor((watchedSeconds / duration) * 100)
+        )
+      }
+
+      const abandoned = !completed && retention < 70
+
+      await supabase.from("watchtime_events").insert({
+        content_id: currentContent.id,
+        user_id: user.id,
+        seconds_watched: watchedSeconds,
+        completed,
+        abandoned,
+        retention_percent: retention
+      })
+
+      const bonusScore =
+        retention >= 90 ? 25 :
+        retention >= 70 ? 12 :
+        retention >= 40 ? 5 :
+        1
+
+      await supabase
+        .from("monitor_content")
+        .update({
+          watchtime_seconds: Number(currentContent.watchtime_seconds || 0) + watchedSeconds,
+          promotion_score: Number(currentContent.promotion_score || 0) + bonusScore
+        })
+        .eq("id", currentContent.id)
+
+      await supabase.from("live_activity_logs").insert({
+        user_id: user.id,
+        action: completed ? "Watchtime complété" : "Watchtime capté",
+        module: "Meyden Watchtime Engine",
+        details: `${currentContent.title} | ${watchedSeconds}s | rétention ${retention}%`
+      })
+
+      setAlreadyTracked(true)
+    } catch (err) {
+      console.log("Watchtime tracking error", err)
+    }
+  }
 
   async function logout() {
     await supabase.auth.signOut()
@@ -360,8 +438,12 @@ export default function Home() {
                   muted={muted}
                   playsInline
                   controls={false}
-                  onEnded={goNextContent}
+                  onEnded={async () => {
+                    await trackWatchtime(true)
+                    goNextContent()
+                  }}
                   onPause={(e) => {
+                    trackWatchtime(false)
                     e.currentTarget.play().catch(() => {})
                   }}
                   style={mediaStyle}
@@ -393,7 +475,10 @@ export default function Home() {
                   autoPlay
                   muted={muted}
                   controls={false}
-                  onEnded={goNextContent}
+                  onEnded={async () => {
+                    await trackWatchtime(true)
+                    goNextContent()
+                  }}
                 />
                 <MiniPlayerControls
                   muted={muted}
@@ -487,6 +572,7 @@ export default function Home() {
 
         <section style={feedStyle}>
           <h2 style={{ color: "#ff6600" }}>Live Activity Feed</h2>
+
           {logs.map((log) => (
             <div key={log.id} style={logStyle}>
               <div style={{ color: "#ff6600" }}>{log.action}</div>
