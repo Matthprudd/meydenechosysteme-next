@@ -1,33 +1,27 @@
 "use client"
 
-import { useEffect, useMemo, useState, type CSSProperties } from "react"
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react"
 import { supabase } from "../lib/supabase"
 
 const BUCKET_NAME = "meyden-media"
-
-const MONITORS = [
-  "fans",
-  "public_cible",
-  "petit_public",
-  "grand_public",
-  "international"
-]
+const MONITORS = ["fans", "public_cible", "petit_public", "grand_public", "international"]
 
 export default function Home() {
   const [user, setUser] = useState<any>(null)
   const [loading, setLoading] = useState(true)
-
   const [logs, setLogs] = useState<any[]>([])
   const [contents, setContents] = useState<any[]>([])
   const [monitorSystem, setMonitorSystem] = useState<any>(null)
-
   const [activeMonitor, setActiveMonitor] = useState("fans")
   const [currentIndex, setCurrentIndex] = useState(0)
-
   const [newTitle, setNewTitle] = useState("")
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [uploading, setUploading] = useState(false)
   const [uploadStatus, setUploadStatus] = useState("")
+  const [volume, setVolume] = useState(0.7)
+  const [muted, setMuted] = useState(false)
+
+  const mediaRef = useRef<HTMLVideoElement | HTMLAudioElement | null>(null)
 
   const filteredContents = useMemo(() => {
     return contents.filter((item) => item.monitor_level === activeMonitor)
@@ -57,6 +51,13 @@ export default function Home() {
 
     return () => clearTimeout(timer)
   }, [currentIndex, filteredContents.length, activeMonitor, monitorSystem])
+
+  useEffect(() => {
+    if (mediaRef.current) {
+      mediaRef.current.volume = volume
+      mediaRef.current.muted = muted
+    }
+  }, [volume, muted, currentContent])
 
   function goNextContent() {
     setCurrentIndex((prev) => {
@@ -132,29 +133,16 @@ export default function Home() {
   }
 
   async function uploadMedia() {
-    if (!user) {
-      alert("Utilisateur non connecté.")
-      return
-    }
-
-    if (!newTitle.trim()) {
-      alert("Ajoute un titre.")
-      return
-    }
-
-    if (!selectedFile) {
-      alert("Choisis un fichier média.")
-      return
-    }
+    if (!user) return alert("Utilisateur non connecté.")
+    if (!newTitle.trim()) return alert("Ajoute un titre.")
+    if (!selectedFile) return alert("Choisis un fichier média.")
 
     try {
       setUploading(true)
       setUploadStatus("Préparation du fichier...")
 
       const allowedTypes = ["image/", "video/", "audio/"]
-      const isAllowed = allowedTypes.some((type) =>
-        selectedFile.type.startsWith(type)
-      )
+      const isAllowed = allowedTypes.some((type) => selectedFile.type.startsWith(type))
 
       if (!isAllowed) {
         setUploading(false)
@@ -192,42 +180,27 @@ export default function Home() {
 
       const fileUrl = publicUrlData.publicUrl
 
-      if (!fileUrl) {
-        setUploading(false)
-        setUploadStatus("")
-        alert("Impossible de générer le lien public.")
-        return
-      }
-
       let mediaType = "video"
-
-      if (selectedFile.type.startsWith("image/")) {
-        mediaType = "image"
-      }
-
-      if (selectedFile.type.startsWith("audio/")) {
-        mediaType = "audio"
-      }
+      if (selectedFile.type.startsWith("image/")) mediaType = "image"
+      if (selectedFile.type.startsWith("audio/")) mediaType = "audio"
 
       setUploadStatus("Sauvegarde dans le Monitor...")
 
-      const { error: insertError } = await supabase
-        .from("monitor_content")
-        .insert({
-          user_id: user.id,
-          title: newTitle.trim(),
-          file_url: fileUrl,
-          media_type: mediaType,
-          content_type: mediaType,
-          monitor_level: activeMonitor,
-          status: "active",
-          tuned_on: 0,
-          views: 0,
-          watchtime_seconds: 0,
-          promotion_score: 0,
-          evolution_state: "stable",
-          coins_generated: 0
-        })
+      const { error: insertError } = await supabase.from("monitor_content").insert({
+        user_id: user.id,
+        title: newTitle.trim(),
+        file_url: fileUrl,
+        media_type: mediaType,
+        content_type: mediaType,
+        monitor_level: activeMonitor,
+        status: "active",
+        tuned_on: 0,
+        views: 0,
+        watchtime_seconds: 0,
+        promotion_score: 0,
+        evolution_state: "stable",
+        coins_generated: 0
+      })
 
       if (insertError) {
         setUploading(false)
@@ -247,7 +220,6 @@ export default function Home() {
       setUploading(false)
       setNewTitle("")
       setSelectedFile(null)
-
       checkUser()
     } catch (err: any) {
       setUploading(false)
@@ -318,9 +290,7 @@ export default function Home() {
     checkUser()
   }
 
-  if (loading) {
-    return <main style={loadingStyle}>Chargement Meyden OS...</main>
-  }
+  if (loading) return <main style={loadingStyle}>Chargement Meyden OS...</main>
 
   if (!user) {
     return (
@@ -364,19 +334,13 @@ export default function Home() {
       </section>
 
       <section style={{ padding: "40px" }}>
-        <h1 style={{ color: "#ff6600", fontSize: "52px" }}>
-          MEYDEN MONITOR
-        </h1>
-
+        <h1 style={{ color: "#ff6600", fontSize: "52px" }}>MEYDEN MONITOR</h1>
         <p style={{ color: "#999" }}>Diffusion continue adaptative</p>
 
         {currentContent ? (
           <section style={streamBoxStyle}>
             <div style={{ padding: "25px" }}>
-              <h2 style={{ color: "#ff6600", fontSize: "38px" }}>
-                {currentContent.title}
-              </h2>
-
+              <h2 style={{ color: "#ff6600", fontSize: "38px" }}>{currentContent.title}</h2>
               <p>Monitor : {currentContent.monitor_level}</p>
               <p>Tuned On : {currentContent.tuned_on || 0}</p>
               <p>Views : {currentContent.views || 0}</p>
@@ -387,19 +351,28 @@ export default function Home() {
             </div>
 
             {currentContent.media_type === "video" && currentContent.file_url && (
-              <video
-                key={currentContent.id}
-                src={currentContent.file_url}
-                autoPlay
-                muted
-                playsInline
-                controls={false}
-                onEnded={goNextContent}
-                onPause={(e) => {
-                  e.currentTarget.play().catch(() => {})
-                }}
-                style={mediaStyle}
-              />
+              <>
+                <video
+                  ref={mediaRef as any}
+                  key={currentContent.id}
+                  src={currentContent.file_url}
+                  autoPlay
+                  muted={muted}
+                  playsInline
+                  controls={false}
+                  onEnded={goNextContent}
+                  onPause={(e) => {
+                    e.currentTarget.play().catch(() => {})
+                  }}
+                  style={mediaStyle}
+                />
+                <MiniPlayerControls
+                  muted={muted}
+                  setMuted={setMuted}
+                  volume={volume}
+                  setVolume={setVolume}
+                />
+              </>
             )}
 
             {currentContent.media_type === "image" && currentContent.file_url && (
@@ -412,13 +385,23 @@ export default function Home() {
             )}
 
             {currentContent.media_type === "audio" && currentContent.file_url && (
-              <audio
-                key={currentContent.id}
-                src={currentContent.file_url}
-                autoPlay
-                controls={false}
-                onEnded={goNextContent}
-              />
+              <>
+                <audio
+                  ref={mediaRef as any}
+                  key={currentContent.id}
+                  src={currentContent.file_url}
+                  autoPlay
+                  muted={muted}
+                  controls={false}
+                  onEnded={goNextContent}
+                />
+                <MiniPlayerControls
+                  muted={muted}
+                  setMuted={setMuted}
+                  volume={volume}
+                  setVolume={setVolume}
+                />
+              </>
             )}
 
             <div style={{ padding: "20px" }}>
@@ -504,19 +487,38 @@ export default function Home() {
 
         <section style={feedStyle}>
           <h2 style={{ color: "#ff6600" }}>Live Activity Feed</h2>
-
           {logs.map((log) => (
             <div key={log.id} style={logStyle}>
               <div style={{ color: "#ff6600" }}>{log.action}</div>
               <div>{log.module}</div>
-              <div style={{ color: "#777", fontSize: "14px" }}>
-                {log.details}
-              </div>
+              <div style={{ color: "#777", fontSize: "14px" }}>{log.details}</div>
             </div>
           ))}
         </section>
       </section>
     </main>
+  )
+}
+
+function MiniPlayerControls({ muted, setMuted, volume, setVolume }: any) {
+  return (
+    <div style={miniControlsStyle}>
+      <button onClick={() => setMuted(!muted)} style={miniButtonStyle}>
+        {muted ? "🔇" : "🔊"}
+      </button>
+
+      <input
+        type="range"
+        min="0"
+        max="1"
+        step="0.01"
+        value={volume}
+        onChange={(e) => setVolume(Number(e.target.value))}
+        style={{ width: "180px" }}
+      />
+
+      <span style={{ color: "#999" }}>{Math.round(volume * 100)}%</span>
+    </div>
   )
 }
 
@@ -646,6 +648,24 @@ const mediaStyle: CSSProperties = {
   width: "100%",
   display: "block",
   background: "#000"
+}
+
+const miniControlsStyle: CSSProperties = {
+  padding: "15px",
+  display: "flex",
+  gap: "15px",
+  alignItems: "center",
+  background: "#111",
+  flexWrap: "wrap"
+}
+
+const miniButtonStyle: CSSProperties = {
+  background: "#ff6600",
+  border: "none",
+  color: "#fff",
+  padding: "10px 14px",
+  borderRadius: "8px",
+  cursor: "pointer"
 }
 
 const statsGridStyle: CSSProperties = {
