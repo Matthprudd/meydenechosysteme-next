@@ -118,36 +118,43 @@ export default function Home() {
     window.location.reload()
   }
 
-  async function uploadMedia() {
-    if (!user) {
-      alert("Utilisateur non connecté.")
-      return
-    }
+async function uploadMedia() {
+  if (!user) {
+    alert("Utilisateur non connecté.")
+    return
+  }
 
-    if (!newTitle.trim()) {
-      alert("Ajoute un titre.")
-      return
-    }
+  if (!newTitle.trim()) {
+    alert("Ajoute un titre.")
+    return
+  }
 
-    if (!selectedFile) {
-      alert("Choisis un fichier média.")
-      return
-    }
+  if (!selectedFile) {
+    alert("Choisis un fichier média.")
+    return
+  }
+
+  try {
+    alert("Préparation du fichier...")
 
     const allowedTypes = ["image/", "video/", "audio/"]
-    const isAllowed = allowedTypes.some((type) => selectedFile.type.startsWith(type))
+
+    const isAllowed = allowedTypes.some((type) =>
+      selectedFile.type.startsWith(type)
+    )
 
     if (!isAllowed) {
-      alert("Format refusé. Utilise image, vidéo ou audio.")
+      alert("Format refusé.")
       return
     }
 
-    const fileExt = selectedFile.name.split(".").pop() || "file"
     const safeName = selectedFile.name
       .replace(/\s+/g, "-")
       .replace(/[^a-zA-Z0-9.-]/g, "")
 
-    const filePath = `${user.id}/${Date.now()}-${safeName || `media.${fileExt}`}`
+    const filePath = `${user.id}/${Date.now()}-${safeName}`
+
+    alert("Téléversement vers Meyden Storage...")
 
     const { error: uploadError } = await supabase.storage
       .from(BUCKET_NAME)
@@ -168,30 +175,65 @@ export default function Home() {
 
     const fileUrl = publicUrlData.publicUrl
 
-    let mediaType = "video"
-    if (selectedFile.type.startsWith("image/")) mediaType = "image"
-    if (selectedFile.type.startsWith("audio/")) mediaType = "audio"
+    if (!fileUrl) {
+      alert("Impossible de générer le lien public.")
+      return
+    }
 
-    const { error: insertError } = await supabase.from("monitor_content").insert({
-      user_id: user.id,
-      title: newTitle.trim(),
-      file_url: fileUrl,
-      media_type: mediaType,
-      content_type: mediaType,
-      monitor_level: "fans",
-      status: "active",
-      tuned_on: 0,
-      views: 0,
-      watchtime_seconds: 0,
-      promotion_score: 0,
-      evolution_state: "stable",
-      coins_generated: 0
-    })
+    let mediaType = "video"
+
+    if (selectedFile.type.startsWith("image/")) {
+      mediaType = "image"
+    }
+
+    if (selectedFile.type.startsWith("audio/")) {
+      mediaType = "audio"
+    }
+
+    alert("Sauvegarde dans le Monitor...")
+
+    const { error: insertError } = await supabase
+      .from("monitor_content")
+      .insert({
+        user_id: user.id,
+        title: newTitle.trim(),
+        file_url: fileUrl,
+        media_type: mediaType,
+        content_type: mediaType,
+        monitor_level: activeMonitor,
+        status: "active",
+        tuned_on: 0,
+        views: 0,
+        watchtime_seconds: 0,
+        promotion_score: 0,
+        evolution_state: "stable",
+        coins_generated: 0
+      })
 
     if (insertError) {
       alert(`Database error: ${insertError.message}`)
       return
     }
+
+    await supabase.from("live_activity_logs").insert({
+      user_id: user.id,
+      action: "Upload média",
+      module: "Meyden Monitor",
+      details: `${newTitle.trim()} envoyé dans ${activeMonitor}`
+    })
+
+    alert("Upload réussi dans Meyden Monitor.")
+
+    setNewTitle("")
+    setSelectedFile(null)
+
+    checkUser()
+
+  } catch (err: any) {
+    alert(`Erreur système: ${err.message}`)
+  }
+}
+    
 
     await supabase.from("live_activity_logs").insert({
       user_id: user.id,
