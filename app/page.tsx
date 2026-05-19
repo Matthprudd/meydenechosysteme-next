@@ -19,20 +19,18 @@ export default function Home() {
 
   const [logs, setLogs] = useState<any[]>([])
   const [contents, setContents] = useState<any[]>([])
-
   const [monitorSystem, setMonitorSystem] = useState<any>(null)
 
   const [activeMonitor, setActiveMonitor] = useState("fans")
-
   const [currentIndex, setCurrentIndex] = useState(0)
 
   const [newTitle, setNewTitle] = useState("")
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
+  const [uploading, setUploading] = useState(false)
+  const [uploadStatus, setUploadStatus] = useState("")
 
   const filteredContents = useMemo(() => {
-    return contents.filter(
-      (item) => item.monitor_level === activeMonitor
-    )
+    return contents.filter((item) => item.monitor_level === activeMonitor)
   }, [contents, activeMonitor])
 
   const currentContent = filteredContents[currentIndex]
@@ -58,20 +56,12 @@ export default function Home() {
     }, seconds * 1000)
 
     return () => clearTimeout(timer)
-  }, [
-    currentIndex,
-    filteredContents.length,
-    activeMonitor,
-    monitorSystem
-  ])
+  }, [currentIndex, filteredContents.length, activeMonitor, monitorSystem])
 
   function goNextContent() {
     setCurrentIndex((prev) => {
       if (filteredContents.length === 0) return 0
-
-      return prev + 1 >= filteredContents.length
-        ? 0
-        : prev + 1
+      return prev + 1 >= filteredContents.length ? 0 : prev + 1
     })
   }
 
@@ -111,35 +101,16 @@ export default function Home() {
       .single()
 
     setMonitorSystem(monitorData)
-
     setLoading(false)
   }
 
   const stats = useMemo(() => {
     return {
       totalContents: contents.length,
-
-      totalTunedOn: contents.reduce(
-        (sum, item) => sum + Number(item.tuned_on || 0),
-        0
-      ),
-
-      totalViews: contents.reduce(
-        (sum, item) => sum + Number(item.views || 0),
-        0
-      ),
-
-      totalWatchtime: contents.reduce(
-        (sum, item) =>
-          sum + Number(item.watchtime_seconds || 0),
-        0
-      ),
-
-      totalCoinsGenerated: contents.reduce(
-        (sum, item) =>
-          sum + Number(item.coins_generated || 0),
-        0
-      )
+      totalTunedOn: contents.reduce((sum, item) => sum + Number(item.tuned_on || 0), 0),
+      totalViews: contents.reduce((sum, item) => sum + Number(item.views || 0), 0),
+      totalWatchtime: contents.reduce((sum, item) => sum + Number(item.watchtime_seconds || 0), 0),
+      totalCoinsGenerated: contents.reduce((sum, item) => sum + Number(item.coins_generated || 0), 0)
     }
   }, [contents])
 
@@ -149,17 +120,14 @@ export default function Home() {
   }
 
   async function processAdaptiveCycle() {
-    const { error } = await supabase.rpc(
-      "process_adaptive_cycle"
-    )
+    const { error } = await supabase.rpc("process_adaptive_cycle")
 
     if (error) {
       alert(error.message)
       return
     }
 
-    alert("Cycle adaptatif exécuté.")
-
+    setUploadStatus("Cycle adaptatif exécuté.")
     checkUser()
   }
 
@@ -180,20 +148,18 @@ export default function Home() {
     }
 
     try {
-      alert("Préparation du fichier...")
+      setUploading(true)
+      setUploadStatus("Préparation du fichier...")
 
-      const allowedTypes = [
-        "image/",
-        "video/",
-        "audio/"
-      ]
-
+      const allowedTypes = ["image/", "video/", "audio/"]
       const isAllowed = allowedTypes.some((type) =>
         selectedFile.type.startsWith(type)
       )
 
       if (!isAllowed) {
-        alert("Format refusé.")
+        setUploading(false)
+        setUploadStatus("")
+        alert("Format refusé. Utilise image, vidéo ou audio.")
         return
       }
 
@@ -203,30 +169,32 @@ export default function Home() {
 
       const filePath = `${user.id}/${Date.now()}-${safeName}`
 
-      alert("Téléversement vers Meyden Storage...")
+      setUploadStatus("Téléversement vers Meyden Storage...")
 
-      const { error: uploadError } =
-        await supabase.storage
-          .from(BUCKET_NAME)
-          .upload(filePath, selectedFile, {
-            cacheControl: "3600",
-            upsert: false,
-            contentType: selectedFile.type
-          })
+      const { error: uploadError } = await supabase.storage
+        .from(BUCKET_NAME)
+        .upload(filePath, selectedFile, {
+          cacheControl: "3600",
+          upsert: false,
+          contentType: selectedFile.type
+        })
 
       if (uploadError) {
+        setUploading(false)
+        setUploadStatus("")
         alert(`Upload error: ${uploadError.message}`)
         return
       }
 
-      const { data: publicUrlData } =
-        supabase.storage
-          .from(BUCKET_NAME)
-          .getPublicUrl(filePath)
+      const { data: publicUrlData } = supabase.storage
+        .from(BUCKET_NAME)
+        .getPublicUrl(filePath)
 
       const fileUrl = publicUrlData.publicUrl
 
       if (!fileUrl) {
+        setUploading(false)
+        setUploadStatus("")
         alert("Impossible de générer le lien public.")
         return
       }
@@ -241,50 +209,49 @@ export default function Home() {
         mediaType = "audio"
       }
 
-      alert("Sauvegarde dans le Monitor...")
+      setUploadStatus("Sauvegarde dans le Monitor...")
 
-      const { error: insertError } =
-        await supabase
-          .from("monitor_content")
-          .insert({
-            user_id: user.id,
-            title: newTitle.trim(),
-            file_url: fileUrl,
-            media_type: mediaType,
-            content_type: mediaType,
-            monitor_level: activeMonitor,
-            status: "active",
-            tuned_on: 0,
-            views: 0,
-            watchtime_seconds: 0,
-            promotion_score: 0,
-            evolution_state: "stable",
-            coins_generated: 0
-          })
+      const { error: insertError } = await supabase
+        .from("monitor_content")
+        .insert({
+          user_id: user.id,
+          title: newTitle.trim(),
+          file_url: fileUrl,
+          media_type: mediaType,
+          content_type: mediaType,
+          monitor_level: activeMonitor,
+          status: "active",
+          tuned_on: 0,
+          views: 0,
+          watchtime_seconds: 0,
+          promotion_score: 0,
+          evolution_state: "stable",
+          coins_generated: 0
+        })
 
       if (insertError) {
-        alert(
-          `Database error: ${insertError.message}`
-        )
+        setUploading(false)
+        setUploadStatus("")
+        alert(`Database error: ${insertError.message}`)
         return
       }
 
-      await supabase
-        .from("live_activity_logs")
-        .insert({
-          user_id: user.id,
-          action: "Upload média",
-          module: "Meyden Monitor",
-          details: `${newTitle.trim()} envoyé dans ${activeMonitor}`
-        })
+      await supabase.from("live_activity_logs").insert({
+        user_id: user.id,
+        action: "Upload média",
+        module: "Meyden Monitor",
+        details: `${newTitle.trim()} envoyé dans ${activeMonitor}`
+      })
 
-      alert("Upload réussi dans Meyden Monitor.")
-
+      setUploadStatus("Upload réussi dans Meyden Monitor.")
+      setUploading(false)
       setNewTitle("")
       setSelectedFile(null)
 
       checkUser()
     } catch (err: any) {
+      setUploading(false)
+      setUploadStatus("")
       alert(`Erreur système: ${err.message}`)
     }
   }
@@ -292,27 +259,15 @@ export default function Home() {
   async function tunedOn(contentId: number) {
     if (!user) return
 
-    const target = contents.find(
-      (item) => item.id === contentId
-    )
-
+    const target = contents.find((item) => item.id === contentId)
     if (!target) return
 
-    const updatedTuned =
-      Number(target.tuned_on || 0) + 1
+    const updatedTuned = Number(target.tuned_on || 0) + 1
+    const updatedViews = Number(target.views || 0) + 5
+    const updatedScore = Number(target.promotion_score || 0) + 6
+    const updatedWatchtime = Number(target.watchtime_seconds || 0) + 25
 
-    const updatedViews =
-      Number(target.views || 0) + 5
-
-    const updatedScore =
-      Number(target.promotion_score || 0) + 6
-
-    const updatedWatchtime =
-      Number(target.watchtime_seconds || 0) + 25
-
-    let updatedCoins =
-      Number(target.coins_generated || 0)
-
+    let updatedCoins = Number(target.coins_generated || 0)
     let updatedMonitor = target.monitor_level
 
     if (updatedScore >= 1000) {
@@ -348,46 +303,31 @@ export default function Home() {
       })
       .eq("id", contentId)
 
-    await supabase
-      .from("tuned_on_events")
-      .insert({
-        content_id: contentId,
-        user_id: user.id
-      })
+    await supabase.from("tuned_on_events").insert({
+      content_id: contentId,
+      user_id: user.id
+    })
 
-    await supabase
-      .from("live_activity_logs")
-      .insert({
-        user_id: user.id,
-        action: "Tuned On",
-        module: "Meyden Monitor",
-        details: `Tuned On contenu ${contentId}`
-      })
+    await supabase.from("live_activity_logs").insert({
+      user_id: user.id,
+      action: "Tuned On",
+      module: "Meyden Monitor",
+      details: `Tuned On contenu ${contentId}`
+    })
 
     checkUser()
   }
 
   if (loading) {
-    return (
-      <main style={loadingStyle}>
-        Chargement Meyden OS...
-      </main>
-    )
+    return <main style={loadingStyle}>Chargement Meyden OS...</main>
   }
 
   if (!user) {
     return (
       <main style={loginStyle}>
-        <h1 style={{ color: "#ff6600" }}>
-          MEYDEN MONITOR
-        </h1>
-
+        <h1 style={{ color: "#ff6600" }}>MEYDEN MONITOR</h1>
         <p>Aucun utilisateur connecté.</p>
-
-        <a
-          href="/auth"
-          style={{ color: "#ff6600" }}
-        >
+        <a href="/auth" style={{ color: "#ff6600" }}>
           Aller au login
         </a>
       </main>
@@ -401,15 +341,10 @@ export default function Home() {
           {MONITORS.map((monitor) => (
             <button
               key={monitor}
-              onClick={() =>
-                setActiveMonitor(monitor)
-              }
+              onClick={() => setActiveMonitor(monitor)}
               style={{
                 ...monitorButtonStyle,
-                background:
-                  activeMonitor === monitor
-                    ? "#ff6600"
-                    : "#111"
+                background: activeMonitor === monitor ? "#ff6600" : "#111"
               }}
             >
               {monitor}
@@ -419,187 +354,92 @@ export default function Home() {
 
         {monitorSystem && (
           <div style={systemLineStyle}>
-            <div>
-              Cycle :{" "}
-              {
-                monitorSystem.active_cycle_minutes
-              }{" "}
-              min
-            </div>
-
-            <div>
-              Mode :{" "}
-              {monitorSystem.monitor_mode}
-            </div>
-
-            <div>
-              Contenus :{" "}
-              {
-                monitorSystem.total_active_contents
-              }
-            </div>
-
-            <div>
-              Utilisateurs live :{" "}
-              {
-                monitorSystem.total_active_users
-              }
-            </div>
-
-            <div>
-              Temps/contenu :{" "}
-              {
-                monitorSystem.average_seconds_per_content
-              }
-              s
-            </div>
+            <div>Cycle : {monitorSystem.active_cycle_minutes} min</div>
+            <div>Mode : {monitorSystem.monitor_mode}</div>
+            <div>Contenus : {monitorSystem.total_active_contents}</div>
+            <div>Utilisateurs live : {monitorSystem.total_active_users}</div>
+            <div>Temps/contenu : {monitorSystem.average_seconds_per_content}s</div>
           </div>
         )}
       </section>
 
       <section style={{ padding: "40px" }}>
-        <h1
-          style={{
-            color: "#ff6600",
-            fontSize: "52px"
-          }}
-        >
+        <h1 style={{ color: "#ff6600", fontSize: "52px" }}>
           MEYDEN MONITOR
         </h1>
 
-        <p style={{ color: "#999" }}>
-          Diffusion continue adaptative
-        </p>
+        <p style={{ color: "#999" }}>Diffusion continue adaptative</p>
 
         {currentContent ? (
           <section style={streamBoxStyle}>
             <div style={{ padding: "25px" }}>
-              <h2
-                style={{
-                  color: "#ff6600",
-                  fontSize: "38px"
-                }}
-              >
+              <h2 style={{ color: "#ff6600", fontSize: "38px" }}>
                 {currentContent.title}
               </h2>
 
-              <p>
-                Monitor :{" "}
-                {currentContent.monitor_level}
-              </p>
-
-              <p>
-                Tuned On :{" "}
-                {currentContent.tuned_on || 0}
-              </p>
-
-              <p>
-                Views :{" "}
-                {currentContent.views || 0}
-              </p>
-
-              <p>
-                Watchtime :{" "}
-                {currentContent.watchtime_seconds ||
-                  0}
-              </p>
-
-              <p>
-                Score :{" "}
-                {currentContent.promotion_score ||
-                  0}
-              </p>
-
-              <p>
-                Coins :{" "}
-                {currentContent.coins_generated ||
-                  0}
-              </p>
-
-              <p>
-                État :{" "}
-                {currentContent.evolution_state ||
-                  "stable"}
-              </p>
+              <p>Monitor : {currentContent.monitor_level}</p>
+              <p>Tuned On : {currentContent.tuned_on || 0}</p>
+              <p>Views : {currentContent.views || 0}</p>
+              <p>Watchtime : {currentContent.watchtime_seconds || 0}</p>
+              <p>Score : {currentContent.promotion_score || 0}</p>
+              <p>Coins : {currentContent.coins_generated || 0}</p>
+              <p>État : {currentContent.evolution_state || "stable"}</p>
             </div>
 
-            {currentContent.media_type ===
-              "video" &&
-              currentContent.file_url && (
-                <video
-                  key={currentContent.id}
-                  src={currentContent.file_url}
-                  autoPlay
-                  muted
-                  playsInline
-                  controls={false}
-                  onEnded={goNextContent}
-                  onPause={(e) => {
-                    e.currentTarget
-                      .play()
-                      .catch(() => {})
-                  }}
-                  style={mediaStyle}
-                />
-              )}
+            {currentContent.media_type === "video" && currentContent.file_url && (
+              <video
+                key={currentContent.id}
+                src={currentContent.file_url}
+                autoPlay
+                muted
+                playsInline
+                controls={false}
+                onEnded={goNextContent}
+                onPause={(e) => {
+                  e.currentTarget.play().catch(() => {})
+                }}
+                style={mediaStyle}
+              />
+            )}
 
-            {currentContent.media_type ===
-              "image" &&
-              currentContent.file_url && (
-                <img
-                  key={currentContent.id}
-                  src={currentContent.file_url}
-                  alt={currentContent.title}
-                  style={mediaStyle}
-                />
-              )}
+            {currentContent.media_type === "image" && currentContent.file_url && (
+              <img
+                key={currentContent.id}
+                src={currentContent.file_url}
+                alt={currentContent.title}
+                style={mediaStyle}
+              />
+            )}
 
-            {currentContent.media_type ===
-              "audio" &&
-              currentContent.file_url && (
-                <audio
-                  key={currentContent.id}
-                  src={currentContent.file_url}
-                  autoPlay
-                  controls={false}
-                  onEnded={goNextContent}
-                />
-              )}
+            {currentContent.media_type === "audio" && currentContent.file_url && (
+              <audio
+                key={currentContent.id}
+                src={currentContent.file_url}
+                autoPlay
+                controls={false}
+                onEnded={goNextContent}
+              />
+            )}
 
             <div style={{ padding: "20px" }}>
-              <button
-                onClick={() =>
-                  tunedOn(currentContent.id)
-                }
-                style={buttonMain}
-              >
+              <button onClick={() => tunedOn(currentContent.id)} style={buttonMain}>
                 ❤️ Tuned On
               </button>
             </div>
           </section>
         ) : (
           <section style={streamBoxStyle}>
-            <h2 style={{ color: "#ff6600" }}>
-              Aucun contenu dans ce monitor.
-            </h2>
-
-            <p>
-              Ajoute du contenu ou choisis un
-              autre monitor.
-            </p>
+            <h2 style={{ color: "#ff6600" }}>Aucun contenu dans ce monitor.</h2>
+            <p>Ajoute du contenu ou choisis un autre monitor.</p>
           </section>
         )}
 
         <section style={uploadBoxStyle}>
-          <h2 style={{ color: "#ff6600" }}>
-            Upload média
-          </h2>
+          <h2 style={{ color: "#ff6600" }}>Upload média</h2>
 
           <input
             value={newTitle}
-            onChange={(e) =>
-              setNewTitle(e.target.value)
-            }
+            onChange={(e) => setNewTitle(e.target.value)}
             placeholder="Titre du contenu"
             style={inputStyle}
           />
@@ -607,99 +447,69 @@ export default function Home() {
           <input
             type="file"
             accept="image/*,video/*,audio/*"
-            onChange={(e) =>
-              setSelectedFile(
-                e.target.files?.[0] || null
-              )
-            }
-            style={{
-              marginBottom: "20px",
-              color: "#fff"
+            onChange={(e) => {
+              setSelectedFile(e.target.files?.[0] || null)
+              setUploadStatus("")
             }}
+            style={{ marginBottom: "20px", color: "#fff" }}
           />
 
           {selectedFile && (
-            <div
-              style={{
-                marginBottom: "20px",
-                color: "#00ff99"
-              }}
-            >
-              ✔ Fichier prêt :{" "}
-              {selectedFile.name}
+            <div style={{ marginBottom: "20px", color: "#00ff99" }}>
+              ✔ Fichier prêt : {selectedFile.name}
             </div>
           )}
 
           <div style={buttonRowStyle}>
             <button
               onClick={uploadMedia}
-              style={buttonMain}
+              disabled={uploading}
+              style={{
+                ...buttonMain,
+                opacity: uploading ? 0.5 : 1
+              }}
             >
-              Upload Monitor
+              {uploading ? "Téléversement..." : "Upload Monitor"}
             </button>
 
-            <button
-              onClick={processAdaptiveCycle}
-              style={buttonDark}
-            >
+            <button onClick={processAdaptiveCycle} style={buttonDark}>
               Adaptive Cycle
             </button>
 
-            <button
-              onClick={logout}
-              style={buttonDark}
-            >
+            <button onClick={logout} style={buttonDark}>
               Logout
             </button>
           </div>
+
+          {uploadStatus && (
+            <div
+              style={{
+                marginTop: "20px",
+                color: uploading ? "#ff6600" : "#00ff99",
+                fontWeight: "bold"
+              }}
+            >
+              {uploadStatus}
+            </div>
+          )}
         </section>
 
         <section style={statsGridStyle}>
-          <Stat
-            label="Total contenus"
-            value={stats.totalContents}
-          />
-
-          <Stat
-            label="Total Tuned On"
-            value={stats.totalTunedOn}
-          />
-
-          <Stat
-            label="Total Views"
-            value={stats.totalViews}
-          />
-
-          <Stat
-            label="Watchtime"
-            value={stats.totalWatchtime}
-          />
-
-          <Stat
-            label="Coins générés"
-            value={stats.totalCoinsGenerated}
-          />
+          <Stat label="Total contenus" value={stats.totalContents} />
+          <Stat label="Total Tuned On" value={stats.totalTunedOn} />
+          <Stat label="Total Views" value={stats.totalViews} />
+          <Stat label="Watchtime" value={stats.totalWatchtime} />
+          <Stat label="Coins générés" value={stats.totalCoinsGenerated} />
         </section>
 
         <section style={feedStyle}>
-          <h2 style={{ color: "#ff6600" }}>
-            Live Activity Feed
-          </h2>
+          <h2 style={{ color: "#ff6600" }}>Live Activity Feed</h2>
 
           {logs.map((log) => (
             <div key={log.id} style={logStyle}>
-              <div style={{ color: "#ff6600" }}>
-                {log.action}
-              </div>
-
+              <div style={{ color: "#ff6600" }}>{log.action}</div>
               <div>{log.module}</div>
-
-              <div
-                style={{
-                  color: "#777",
-                  fontSize: "14px"
-                }}
-              >
+              <div style={{ color: "#777", fontSize: "14px" }}>
                 {log.details}
               </div>
             </div>
@@ -710,20 +520,11 @@ export default function Home() {
   )
 }
 
-function Stat({
-  label,
-  value
-}: {
-  label: string
-  value: any
-}) {
+function Stat({ label, value }: { label: string; value: any }) {
   return (
     <div style={statStyle}>
       <div>{label}</div>
-
-      <h2 style={{ color: "#ff6600" }}>
-        {value}
-      </h2>
+      <h2 style={{ color: "#ff6600" }}>{value}</h2>
     </div>
   )
 }
@@ -849,8 +650,7 @@ const mediaStyle: CSSProperties = {
 
 const statsGridStyle: CSSProperties = {
   display: "grid",
-  gridTemplateColumns:
-    "repeat(auto-fit,minmax(220px,1fr))",
+  gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))",
   gap: "15px",
   marginBottom: "30px"
 }
