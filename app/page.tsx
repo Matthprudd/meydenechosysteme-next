@@ -7,18 +7,11 @@ const BUCKET_NAME = "meyden-media"
 const MAX_FILE_MB = 50
 const MAX_FILE_BYTES = MAX_FILE_MB * 1024 * 1024
 
-const MONITORS = [
-  "fans",
-  "public_cible",
-  "petit_public",
-  "grand_public",
-  "international"
-]
+const MONITORS = ["fans", "public_cible", "petit_public", "grand_public", "international"]
 
 export default function Home() {
   const [user, setUser] = useState<any>(null)
   const [loading, setLoading] = useState(true)
-
   const [logs, setLogs] = useState<any[]>([])
   const [contents, setContents] = useState<any[]>([])
   const [monitorSystem, setMonitorSystem] = useState<any>(null)
@@ -39,10 +32,12 @@ export default function Home() {
   const [watchStart, setWatchStart] = useState<number | null>(null)
   const [alreadyTracked, setAlreadyTracked] = useState(false)
 
+  const [showFounderPanel, setShowFounderPanel] = useState(true)
+
   const mediaRef = useRef<HTMLVideoElement | HTMLAudioElement | null>(null)
 
   const filteredContents = useMemo(() => {
-    return contents.filter((item) => item.monitor_level === activeMonitor)
+    return contents.filter((item) => item.monitor_level === activeMonitor && item.status !== "disabled")
   }, [contents, activeMonitor])
 
   const currentContent = filteredContents[currentIndex]
@@ -80,7 +75,6 @@ export default function Home() {
 
   useEffect(() => {
     if (!currentContent) return
-
     setWatchStart(Date.now())
     setAlreadyTracked(false)
   }, [currentContent])
@@ -118,7 +112,6 @@ export default function Home() {
     if (file.type.startsWith("video/") || file.type.startsWith("audio/")) {
       const url = URL.createObjectURL(file)
       const media = document.createElement(file.type.startsWith("video/") ? "video" : "audio")
-
       media.preload = "metadata"
       media.src = url
 
@@ -152,9 +145,8 @@ export default function Home() {
     const { data: logsData } = await supabase
       .from("live_activity_logs")
       .select("*")
-      .eq("user_id", session.user.id)
       .order("created_at", { ascending: false })
-      .limit(20)
+      .limit(30)
 
     setLogs(logsData || [])
 
@@ -162,7 +154,7 @@ export default function Home() {
       .from("monitor_content")
       .select("*")
       .order("promotion_score", { ascending: false })
-      .limit(100)
+      .limit(150)
 
     setContents(contentData || [])
 
@@ -179,6 +171,8 @@ export default function Home() {
   const stats = useMemo(() => {
     return {
       totalContents: contents.length,
+      totalActive: contents.filter((item) => item.status !== "disabled").length,
+      totalDisabled: contents.filter((item) => item.status === "disabled").length,
       totalTunedOn: contents.reduce((sum, item) => sum + Number(item.tuned_on || 0), 0),
       totalViews: contents.reduce((sum, item) => sum + Number(item.views || 0), 0),
       totalWatchtime: contents.reduce((sum, item) => sum + Number(item.watchtime_seconds || 0), 0),
@@ -194,15 +188,10 @@ export default function Home() {
       const media = mediaRef.current
       let duration = 0
 
-      if (media && !isNaN(media.duration)) {
-        duration = media.duration
-      }
+      if (media && !isNaN(media.duration)) duration = media.duration
 
       let retention = 0
-
-      if (duration > 0) {
-        retention = Math.min(100, Math.floor((watchedSeconds / duration) * 100))
-      }
+      if (duration > 0) retention = Math.min(100, Math.floor((watchedSeconds / duration) * 100))
 
       const abandoned = !completed && retention < 70
 
@@ -256,6 +245,53 @@ export default function Home() {
     }
 
     setUploadStatus("Cycle adaptatif exécuté.")
+    checkUser()
+  }
+
+  async function founderForceMonitor(contentId: number, newMonitor: string) {
+    const ok = confirm(`Forcer ce contenu vers ${newMonitor} ?`)
+    if (!ok) return
+
+    const { error } = await supabase.rpc("founder_update_content_monitor", {
+      content_id: contentId,
+      new_monitor: newMonitor
+    })
+
+    if (error) {
+      alert(error.message)
+      return
+    }
+
+    await supabase.from("live_activity_logs").insert({
+      user_id: user?.id,
+      action: "Action Fondateur",
+      module: "Founder Panel",
+      details: `Contenu ${contentId} forcé vers ${newMonitor}`
+    })
+
+    checkUser()
+  }
+
+  async function founderDisableContent(contentId: number) {
+    const ok = confirm("Désactiver ce contenu du Monitor ?")
+    if (!ok) return
+
+    const { error } = await supabase.rpc("founder_disable_content", {
+      content_id: contentId
+    })
+
+    if (error) {
+      alert(error.message)
+      return
+    }
+
+    await supabase.from("live_activity_logs").insert({
+      user_id: user?.id,
+      action: "Action Fondateur",
+      module: "Founder Panel",
+      details: `Contenu ${contentId} désactivé`
+    })
+
     checkUser()
   }
 
@@ -431,9 +467,7 @@ export default function Home() {
       <main style={loginStyle}>
         <h1 style={{ color: "#ff6600" }}>MEYDEN MONITOR</h1>
         <p>Aucun utilisateur connecté.</p>
-        <a href="/auth" style={{ color: "#ff6600" }}>
-          Aller au login
-        </a>
+        <a href="/auth" style={{ color: "#ff6600" }}>Aller au login</a>
       </main>
     )
   }
@@ -504,22 +538,12 @@ export default function Home() {
                   }}
                   style={mediaStyle}
                 />
-                <MiniPlayerControls
-                  muted={muted}
-                  setMuted={setMuted}
-                  volume={volume}
-                  setVolume={setVolume}
-                />
+                <MiniPlayerControls muted={muted} setMuted={setMuted} volume={volume} setVolume={setVolume} />
               </>
             )}
 
             {currentContent.media_type === "image" && currentContent.file_url && (
-              <img
-                key={currentContent.id}
-                src={currentContent.file_url}
-                alt={currentContent.title}
-                style={mediaStyle}
-              />
+              <img key={currentContent.id} src={currentContent.file_url} alt={currentContent.title} style={mediaStyle} />
             )}
 
             {currentContent.media_type === "audio" && currentContent.file_url && (
@@ -536,19 +560,12 @@ export default function Home() {
                     goNextContent()
                   }}
                 />
-                <MiniPlayerControls
-                  muted={muted}
-                  setMuted={setMuted}
-                  volume={volume}
-                  setVolume={setVolume}
-                />
+                <MiniPlayerControls muted={muted} setMuted={setMuted} volume={volume} setVolume={setVolume} />
               </>
             )}
 
             <div style={{ padding: "20px" }}>
-              <button onClick={() => tunedOn(currentContent.id)} style={buttonMain}>
-                ❤️ Tuned On
-              </button>
+              <button onClick={() => tunedOn(currentContent.id)} style={buttonMain}>❤️ Tuned On</button>
             </div>
           </section>
         ) : (
@@ -558,15 +575,58 @@ export default function Home() {
           </section>
         )}
 
+        <section style={founderBoxStyle}>
+          <div style={founderHeaderStyle}>
+            <h2 style={{ color: "#ff6600" }}>Fondateur Panel v1</h2>
+            <button onClick={() => setShowFounderPanel(!showFounderPanel)} style={buttonDark}>
+              {showFounderPanel ? "Masquer" : "Afficher"}
+            </button>
+          </div>
+
+          {showFounderPanel && (
+            <>
+              <div style={founderStatsStyle}>
+                <div>Actifs : {stats.totalActive}</div>
+                <div>Désactivés : {stats.totalDisabled}</div>
+                <div>Total : {stats.totalContents}</div>
+              </div>
+
+              <div style={{ display: "grid", gap: "15px", marginTop: "20px" }}>
+                {contents.slice(0, 25).map((item) => (
+                  <div key={item.id} style={founderItemStyle}>
+                    <div>
+                      <strong style={{ color: "#ff6600" }}>{item.title}</strong>
+                      <div style={{ color: "#999", fontSize: "14px" }}>
+                        ID {item.id} | {item.monitor_level} | score {item.promotion_score || 0} | status {item.status}
+                      </div>
+                    </div>
+
+                    <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "12px" }}>
+                      {MONITORS.map((monitor) => (
+                        <button
+                          key={monitor}
+                          onClick={() => founderForceMonitor(item.id, monitor)}
+                          style={smallButtonStyle}
+                        >
+                          → {monitor}
+                        </button>
+                      ))}
+
+                      <button onClick={() => founderDisableContent(item.id)} style={dangerButtonStyle}>
+                        Désactiver
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </section>
+
         <section style={uploadBoxStyle}>
           <h2 style={{ color: "#ff6600" }}>Upload média</h2>
 
-          <input
-            value={newTitle}
-            onChange={(e) => setNewTitle(e.target.value)}
-            placeholder="Titre du contenu"
-            style={inputStyle}
-          />
+          <input value={newTitle} onChange={(e) => setNewTitle(e.target.value)} placeholder="Titre du contenu" style={inputStyle} />
 
           <input
             type="file"
@@ -580,11 +640,7 @@ export default function Home() {
             style={{ marginBottom: "20px", color: "#fff" }}
           />
 
-          {selectedFile && (
-            <div style={{ marginBottom: "20px", color: "#00ff99" }}>
-              ✔ Fichier prêt : {selectedFile.name}
-            </div>
-          )}
+          {selectedFile && <div style={{ marginBottom: "20px", color: "#00ff99" }}>✔ Fichier prêt : {selectedFile.name}</div>}
 
           {mediaInfo && (
             <div
@@ -599,56 +655,27 @@ export default function Home() {
             >
               <div>Type : {mediaInfo.type}</div>
               <div>Taille : {mediaInfo.sizeMB} MB / max {MAX_FILE_MB} MB</div>
-
               {mediaInfo.duration && <div>Durée : {mediaInfo.duration}s</div>}
-
               <div>Position estimée dans ce monitor : #{mediaInfo.position}</div>
               <div>Temps moyen par contenu : {mediaInfo.cycleSeconds}s</div>
               <div>Attente estimée avant diffusion : {mediaInfo.estimatedWait}s</div>
-
-              <div
-                style={{
-                  marginTop: "10px",
-                  color: mediaInfo.tooHeavy ? "#ff0033" : "#00ff99",
-                  fontWeight: "bold"
-                }}
-              >
-                {mediaInfo.tooHeavy
-                  ? "Fichier trop lourd. Coupe ou compresse avant upload."
-                  : "Compatible Meyden Monitor."}
+              <div style={{ marginTop: "10px", color: mediaInfo.tooHeavy ? "#ff0033" : "#00ff99", fontWeight: "bold" }}>
+                {mediaInfo.tooHeavy ? "Fichier trop lourd. Coupe ou compresse avant upload." : "Compatible Meyden Monitor."}
               </div>
             </div>
           )}
 
           <div style={buttonRowStyle}>
-            <button
-              onClick={uploadMedia}
-              disabled={uploading}
-              style={{
-                ...buttonMain,
-                opacity: uploading ? 0.5 : 1
-              }}
-            >
+            <button onClick={uploadMedia} disabled={uploading} style={{ ...buttonMain, opacity: uploading ? 0.5 : 1 }}>
               {uploading ? "Téléversement..." : "Upload Monitor"}
             </button>
 
-            <button onClick={processAdaptiveCycle} style={buttonDark}>
-              Adaptive Cycle
-            </button>
-
-            <button onClick={logout} style={buttonDark}>
-              Logout
-            </button>
+            <button onClick={processAdaptiveCycle} style={buttonDark}>Adaptive Cycle</button>
+            <button onClick={logout} style={buttonDark}>Logout</button>
           </div>
 
           {uploadStatus && (
-            <div
-              style={{
-                marginTop: "20px",
-                color: uploading ? "#ff6600" : "#00ff99",
-                fontWeight: "bold"
-              }}
-            >
+            <div style={{ marginTop: "20px", color: uploading ? "#ff6600" : "#00ff99", fontWeight: "bold" }}>
               {uploadStatus}
             </div>
           )}
@@ -656,6 +683,7 @@ export default function Home() {
 
         <section style={statsGridStyle}>
           <Stat label="Total contenus" value={stats.totalContents} />
+          <Stat label="Total actifs" value={stats.totalActive} />
           <Stat label="Total Tuned On" value={stats.totalTunedOn} />
           <Stat label="Total Views" value={stats.totalViews} />
           <Stat label="Watchtime" value={stats.totalWatchtime} />
@@ -664,7 +692,6 @@ export default function Home() {
 
         <section style={feedStyle}>
           <h2 style={{ color: "#ff6600" }}>Live Activity Feed</h2>
-
           {logs.map((log) => (
             <div key={log.id} style={logStyle}>
               <div style={{ color: "#ff6600" }}>{log.action}</div>
@@ -685,15 +712,7 @@ function MiniPlayerControls({ muted, setMuted, volume, setVolume }: any) {
         {muted ? "🔇" : "🔊"}
       </button>
 
-      <input
-        type="range"
-        min="0"
-        max="1"
-        step="0.01"
-        value={volume}
-        onChange={(e) => setVolume(Number(e.target.value))}
-        style={{ width: "180px" }}
-      />
+      <input type="range" min="0" max="1" step="0.01" value={volume} onChange={(e) => setVolume(Number(e.target.value))} style={{ width: "180px" }} />
 
       <span style={{ color: "#999" }}>{Math.round(volume * 100)}%</span>
     </div>
@@ -709,164 +728,29 @@ function Stat({ label, value }: { label: string; value: any }) {
   )
 }
 
-const mainStyle: CSSProperties = {
-  background: "#000",
-  color: "#fff",
-  minHeight: "100vh",
-  fontFamily: "Arial"
-}
-
-const loadingStyle: CSSProperties = {
-  background: "#000",
-  color: "#ff6600",
-  minHeight: "100vh",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  fontSize: "24px",
-  fontFamily: "Arial"
-}
-
-const loginStyle: CSSProperties = {
-  background: "#000",
-  color: "#fff",
-  minHeight: "100vh",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  flexDirection: "column",
-  fontFamily: "Arial"
-}
-
-const stickyStyle: CSSProperties = {
-  position: "sticky",
-  top: 0,
-  zIndex: 999,
-  background: "#000",
-  padding: "15px 20px",
-  borderBottom: "1px solid #222"
-}
-
-const monitorBarStyle: CSSProperties = {
-  display: "flex",
-  gap: "10px",
-  flexWrap: "wrap"
-}
-
-const monitorButtonStyle: CSSProperties = {
-  border: "1px solid #ff6600",
-  color: "#fff",
-  padding: "12px 18px",
-  borderRadius: "10px",
-  cursor: "pointer"
-}
-
-const systemLineStyle: CSSProperties = {
-  marginTop: "15px",
-  color: "#999",
-  display: "flex",
-  gap: "25px",
-  flexWrap: "wrap"
-}
-
-const streamBoxStyle: CSSProperties = {
-  background: "#080808",
-  borderRadius: "20px",
-  marginBottom: "30px",
-  overflow: "hidden",
-  border: "1px solid #222"
-}
-
-const uploadBoxStyle: CSSProperties = {
-  background: "#080808",
-  padding: "30px",
-  borderRadius: "20px",
-  marginBottom: "30px"
-}
-
-const inputStyle: CSSProperties = {
-  width: "100%",
-  padding: "16px",
-  marginTop: "20px",
-  marginBottom: "20px",
-  background: "#111",
-  color: "#fff",
-  border: "1px solid #ff6600",
-  borderRadius: "10px",
-  boxSizing: "border-box"
-}
-
-const buttonRowStyle: CSSProperties = {
-  display: "flex",
-  gap: "10px",
-  flexWrap: "wrap"
-}
-
-const buttonMain: CSSProperties = {
-  background: "#ff6600",
-  border: "none",
-  padding: "16px 28px",
-  color: "#fff",
-  borderRadius: "10px",
-  fontSize: "18px",
-  cursor: "pointer"
-}
-
-const buttonDark: CSSProperties = {
-  background: "#111",
-  border: "1px solid #ff6600",
-  padding: "16px 28px",
-  color: "#fff",
-  borderRadius: "10px",
-  fontSize: "18px",
-  cursor: "pointer"
-}
-
-const mediaStyle: CSSProperties = {
-  width: "100%",
-  display: "block",
-  background: "#000"
-}
-
-const miniControlsStyle: CSSProperties = {
-  padding: "15px",
-  display: "flex",
-  gap: "15px",
-  alignItems: "center",
-  background: "#111",
-  flexWrap: "wrap"
-}
-
-const miniButtonStyle: CSSProperties = {
-  background: "#ff6600",
-  border: "none",
-  color: "#fff",
-  padding: "10px 14px",
-  borderRadius: "8px",
-  cursor: "pointer"
-}
-
-const statsGridStyle: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))",
-  gap: "15px",
-  marginBottom: "30px"
-}
-
-const statStyle: CSSProperties = {
-  background: "#080808",
-  padding: "20px",
-  borderRadius: "16px"
-}
-
-const feedStyle: CSSProperties = {
-  background: "#080808",
-  padding: "30px",
-  borderRadius: "20px",
-  marginTop: "30px"
-}
-
-const logStyle: CSSProperties = {
-  borderBottom: "1px solid #222",
-  padding: "12px 0"
-}
+const mainStyle: CSSProperties = { background: "#000", color: "#fff", minHeight: "100vh", fontFamily: "Arial" }
+const loadingStyle: CSSProperties = { background: "#000", color: "#ff6600", minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "24px", fontFamily: "Arial" }
+const loginStyle: CSSProperties = { background: "#000", color: "#fff", minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", fontFamily: "Arial" }
+const stickyStyle: CSSProperties = { position: "sticky", top: 0, zIndex: 999, background: "#000", padding: "15px 20px", borderBottom: "1px solid #222" }
+const monitorBarStyle: CSSProperties = { display: "flex", gap: "10px", flexWrap: "wrap" }
+const monitorButtonStyle: CSSProperties = { border: "1px solid #ff6600", color: "#fff", padding: "12px 18px", borderRadius: "10px", cursor: "pointer" }
+const systemLineStyle: CSSProperties = { marginTop: "15px", color: "#999", display: "flex", gap: "25px", flexWrap: "wrap" }
+const streamBoxStyle: CSSProperties = { background: "#080808", borderRadius: "20px", marginBottom: "30px", overflow: "hidden", border: "1px solid #222" }
+const founderBoxStyle: CSSProperties = { background: "#090909", padding: "25px", borderRadius: "20px", marginBottom: "30px", border: "1px solid rgba(255,102,0,.35)" }
+const founderHeaderStyle: CSSProperties = { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "15px", flexWrap: "wrap" }
+const founderStatsStyle: CSSProperties = { display: "flex", gap: "20px", color: "#999", flexWrap: "wrap" }
+const founderItemStyle: CSSProperties = { background: "#111", padding: "15px", borderRadius: "14px", border: "1px solid #222" }
+const uploadBoxStyle: CSSProperties = { background: "#080808", padding: "30px", borderRadius: "20px", marginBottom: "30px" }
+const inputStyle: CSSProperties = { width: "100%", padding: "16px", marginTop: "20px", marginBottom: "20px", background: "#111", color: "#fff", border: "1px solid #ff6600", borderRadius: "10px", boxSizing: "border-box" }
+const buttonRowStyle: CSSProperties = { display: "flex", gap: "10px", flexWrap: "wrap" }
+const buttonMain: CSSProperties = { background: "#ff6600", border: "none", padding: "16px 28px", color: "#fff", borderRadius: "10px", fontSize: "18px", cursor: "pointer" }
+const buttonDark: CSSProperties = { background: "#111", border: "1px solid #ff6600", padding: "16px 28px", color: "#fff", borderRadius: "10px", fontSize: "18px", cursor: "pointer" }
+const smallButtonStyle: CSSProperties = { background: "#222", border: "1px solid #ff6600", color: "#fff", padding: "8px 10px", borderRadius: "8px", cursor: "pointer", fontSize: "12px" }
+const dangerButtonStyle: CSSProperties = { background: "#3b0000", border: "1px solid #ff0033", color: "#fff", padding: "8px 10px", borderRadius: "8px", cursor: "pointer", fontSize: "12px" }
+const mediaStyle: CSSProperties = { width: "100%", display: "block", background: "#000" }
+const miniControlsStyle: CSSProperties = { padding: "15px", display: "flex", gap: "15px", alignItems: "center", background: "#111", flexWrap: "wrap" }
+const miniButtonStyle: CSSProperties = { background: "#ff6600", border: "none", color: "#fff", padding: "10px 14px", borderRadius: "8px", cursor: "pointer" }
+const statsGridStyle: CSSProperties = { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))", gap: "15px", marginBottom: "30px" }
+const statStyle: CSSProperties = { background: "#080808", padding: "20px", borderRadius: "16px" }
+const feedStyle: CSSProperties = { background: "#080808", padding: "30px", borderRadius: "20px", marginTop: "30px" }
+const logStyle: CSSProperties = { borderBottom: "1px solid #222", padding: "12px 0" }
