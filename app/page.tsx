@@ -31,13 +31,14 @@ export default function Home() {
 
   const [watchStart, setWatchStart] = useState<number | null>(null)
   const [alreadyTracked, setAlreadyTracked] = useState(false)
-
   const [showFounderPanel, setShowFounderPanel] = useState(true)
 
   const mediaRef = useRef<HTMLVideoElement | HTMLAudioElement | null>(null)
 
   const filteredContents = useMemo(() => {
-    return contents.filter((item) => item.monitor_level === activeMonitor && item.status !== "disabled")
+    return contents.filter(
+      (item) => item.monitor_level === activeMonitor && item.status !== "disabled"
+    )
   }, [contents, activeMonitor])
 
   const currentContent = filteredContents[currentIndex]
@@ -45,6 +46,48 @@ export default function Home() {
   useEffect(() => {
     checkUser()
   }, [])
+
+  useEffect(() => {
+    if (!user) return
+
+    const channel = supabase
+      .channel("meyden-realtime-engine")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "monitor_content" },
+        () => {
+          refreshContentOnly()
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "live_activity_logs" },
+        () => {
+          refreshLogsOnly()
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "watchtime_events" },
+        () => {
+          refreshContentOnly()
+          refreshLogsOnly()
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "tuned_on_events" },
+        () => {
+          refreshContentOnly()
+          refreshLogsOnly()
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [user])
 
   useEffect(() => {
     setCurrentIndex(0)
@@ -84,6 +127,53 @@ export default function Home() {
       if (filteredContents.length === 0) return 0
       return prev + 1 >= filteredContents.length ? 0 : prev + 1
     })
+  }
+
+  async function checkUser() {
+    const {
+      data: { session }
+    } = await supabase.auth.getSession()
+
+    if (!session?.user) {
+      setLoading(false)
+      return
+    }
+
+    setUser(session.user)
+    await refreshContentOnly()
+    await refreshLogsOnly()
+    await refreshMonitorSystem()
+    setLoading(false)
+  }
+
+  async function refreshContentOnly() {
+    const { data: contentData } = await supabase
+      .from("monitor_content")
+      .select("*")
+      .order("promotion_score", { ascending: false })
+      .limit(150)
+
+    setContents(contentData || [])
+  }
+
+  async function refreshLogsOnly() {
+    const { data: logsData } = await supabase
+      .from("live_activity_logs")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(30)
+
+    setLogs(logsData || [])
+  }
+
+  async function refreshMonitorSystem() {
+    const { data: monitorData } = await supabase
+      .from("monitor_system")
+      .select("*")
+      .eq("id", "main")
+      .single()
+
+    setMonitorSystem(monitorData)
   }
 
   function analyzeMedia(file: File | null) {
@@ -128,44 +218,6 @@ export default function Home() {
     } else {
       setMediaInfo(info)
     }
-  }
-
-  async function checkUser() {
-    const {
-      data: { session }
-    } = await supabase.auth.getSession()
-
-    if (!session?.user) {
-      setLoading(false)
-      return
-    }
-
-    setUser(session.user)
-
-    const { data: logsData } = await supabase
-      .from("live_activity_logs")
-      .select("*")
-      .order("created_at", { ascending: false })
-      .limit(30)
-
-    setLogs(logsData || [])
-
-    const { data: contentData } = await supabase
-      .from("monitor_content")
-      .select("*")
-      .order("promotion_score", { ascending: false })
-      .limit(150)
-
-    setContents(contentData || [])
-
-    const { data: monitorData } = await supabase
-      .from("monitor_system")
-      .select("*")
-      .eq("id", "main")
-      .single()
-
-    setMonitorSystem(monitorData)
-    setLoading(false)
   }
 
   const stats = useMemo(() => {
@@ -245,7 +297,8 @@ export default function Home() {
     }
 
     setUploadStatus("Cycle adaptatif exécuté.")
-    checkUser()
+    await refreshMonitorSystem()
+    await refreshContentOnly()
   }
 
   async function founderForceMonitor(contentId: number, newMonitor: string) {
@@ -268,8 +321,6 @@ export default function Home() {
       module: "Founder Panel",
       details: `Contenu ${contentId} forcé vers ${newMonitor}`
     })
-
-    checkUser()
   }
 
   async function founderDisableContent(contentId: number) {
@@ -291,8 +342,6 @@ export default function Home() {
       module: "Founder Panel",
       details: `Contenu ${contentId} désactivé`
     })
-
-    checkUser()
   }
 
   async function uploadMedia() {
@@ -390,7 +439,6 @@ export default function Home() {
       setNewTitle("")
       setSelectedFile(null)
       setMediaInfo(null)
-      checkUser()
     } catch (err: any) {
       setUploading(false)
       setUploadStatus("")
@@ -456,8 +504,6 @@ export default function Home() {
       module: "Meyden Monitor",
       details: `Tuned On contenu ${contentId}`
     })
-
-    checkUser()
   }
 
   if (loading) return <main style={loadingStyle}>Chargement Meyden OS...</main>
@@ -503,7 +549,7 @@ export default function Home() {
 
       <section style={{ padding: "40px" }}>
         <h1 style={{ color: "#ff6600", fontSize: "52px" }}>MEYDEN MONITOR</h1>
-        <p style={{ color: "#999" }}>Diffusion continue adaptative</p>
+        <p style={{ color: "#999" }}>Diffusion continue adaptative + Realtime Engine</p>
 
         {currentContent ? (
           <section style={streamBoxStyle}>
@@ -577,7 +623,7 @@ export default function Home() {
 
         <section style={founderBoxStyle}>
           <div style={founderHeaderStyle}>
-            <h2 style={{ color: "#ff6600" }}>Fondateur Panel v1</h2>
+            <h2 style={{ color: "#ff6600" }}>Fondateur Panel v1 — Realtime</h2>
             <button onClick={() => setShowFounderPanel(!showFounderPanel)} style={buttonDark}>
               {showFounderPanel ? "Masquer" : "Afficher"}
             </button>
@@ -691,7 +737,7 @@ export default function Home() {
         </section>
 
         <section style={feedStyle}>
-          <h2 style={{ color: "#ff6600" }}>Live Activity Feed</h2>
+          <h2 style={{ color: "#ff6600" }}>Live Activity Feed — Realtime</h2>
           {logs.map((log) => (
             <div key={log.id} style={logStyle}>
               <div style={{ color: "#ff6600" }}>{log.action}</div>
@@ -711,9 +757,7 @@ function MiniPlayerControls({ muted, setMuted, volume, setVolume }: any) {
       <button onClick={() => setMuted(!muted)} style={miniButtonStyle}>
         {muted ? "🔇" : "🔊"}
       </button>
-
       <input type="range" min="0" max="1" step="0.01" value={volume} onChange={(e) => setVolume(Number(e.target.value))} style={{ width: "180px" }} />
-
       <span style={{ color: "#999" }}>{Math.round(volume * 100)}%</span>
     </div>
   )
