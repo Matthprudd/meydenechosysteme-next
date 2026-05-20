@@ -4,7 +4,16 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react"
 import { supabase } from "../lib/supabase"
 
 const BUCKET_NAME = "meyden-media"
-const MONITORS = ["fans", "public_cible", "petit_public", "grand_public", "international"]
+const MAX_FILE_MB = 50
+const MAX_FILE_BYTES = MAX_FILE_MB * 1024 * 1024
+
+const MONITORS = [
+  "fans",
+  "public_cible",
+  "petit_public",
+  "grand_public",
+  "international"
+]
 
 export default function Home() {
   const [user, setUser] = useState<any>(null)
@@ -19,6 +28,8 @@ export default function Home() {
 
   const [newTitle, setNewTitle] = useState("")
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
+  const [mediaInfo, setMediaInfo] = useState<any>(null)
+
   const [uploading, setUploading] = useState(false)
   const [uploadStatus, setUploadStatus] = useState("")
 
@@ -81,6 +92,51 @@ export default function Home() {
     })
   }
 
+  function analyzeMedia(file: File | null) {
+    if (!file) {
+      setMediaInfo(null)
+      return
+    }
+
+    const sizeMB = file.size / 1024 / 1024
+    const type = file.type || "inconnu"
+    const tooHeavy = file.size > MAX_FILE_BYTES
+    const cycleSeconds = Number(monitorSystem?.average_seconds_per_content || 15)
+    const position = filteredContents.length + 1
+    const estimatedWait = position * cycleSeconds
+
+    const info: any = {
+      name: file.name,
+      sizeMB: sizeMB.toFixed(2),
+      type,
+      tooHeavy,
+      cycleSeconds,
+      position,
+      estimatedWait
+    }
+
+    if (file.type.startsWith("video/") || file.type.startsWith("audio/")) {
+      const url = URL.createObjectURL(file)
+      const media = document.createElement(file.type.startsWith("video/") ? "video" : "audio")
+
+      media.preload = "metadata"
+      media.src = url
+
+      media.onloadedmetadata = () => {
+        info.duration = Math.round(media.duration || 0)
+        URL.revokeObjectURL(url)
+        setMediaInfo({ ...info })
+      }
+
+      media.onerror = () => {
+        URL.revokeObjectURL(url)
+        setMediaInfo({ ...info })
+      }
+    } else {
+      setMediaInfo(info)
+    }
+  }
+
   async function checkUser() {
     const {
       data: { session }
@@ -134,11 +190,7 @@ export default function Home() {
     if (!user || !currentContent || !watchStart || alreadyTracked) return
 
     try {
-      const watchedSeconds = Math.max(
-        1,
-        Math.floor((Date.now() - watchStart) / 1000)
-      )
-
+      const watchedSeconds = Math.max(1, Math.floor((Date.now() - watchStart) / 1000))
       const media = mediaRef.current
       let duration = 0
 
@@ -149,10 +201,7 @@ export default function Home() {
       let retention = 0
 
       if (duration > 0) {
-        retention = Math.min(
-          100,
-          Math.floor((watchedSeconds / duration) * 100)
-        )
+        retention = Math.min(100, Math.floor((watchedSeconds / duration) * 100))
       }
 
       const abandoned = !completed && retention < 70
@@ -214,6 +263,12 @@ export default function Home() {
     if (!user) return alert("Utilisateur non connecté.")
     if (!newTitle.trim()) return alert("Ajoute un titre.")
     if (!selectedFile) return alert("Choisis un fichier média.")
+
+    if (selectedFile.size > MAX_FILE_BYTES) {
+      setUploadStatus(`Fichier trop lourd. Maximum actuel : ${MAX_FILE_MB} MB.`)
+      alert(`Fichier trop lourd. Maximum actuel : ${MAX_FILE_MB} MB.`)
+      return
+    }
 
     try {
       setUploading(true)
@@ -298,6 +353,7 @@ export default function Home() {
       setUploading(false)
       setNewTitle("")
       setSelectedFile(null)
+      setMediaInfo(null)
       checkUser()
     } catch (err: any) {
       setUploading(false)
@@ -516,8 +572,10 @@ export default function Home() {
             type="file"
             accept="image/*,video/*,audio/*"
             onChange={(e) => {
-              setSelectedFile(e.target.files?.[0] || null)
+              const file = e.target.files?.[0] || null
+              setSelectedFile(file)
               setUploadStatus("")
+              analyzeMedia(file)
             }}
             style={{ marginBottom: "20px", color: "#fff" }}
           />
@@ -525,6 +583,40 @@ export default function Home() {
           {selectedFile && (
             <div style={{ marginBottom: "20px", color: "#00ff99" }}>
               ✔ Fichier prêt : {selectedFile.name}
+            </div>
+          )}
+
+          {mediaInfo && (
+            <div
+              style={{
+                marginBottom: "20px",
+                padding: "15px",
+                background: "#111",
+                border: mediaInfo.tooHeavy ? "1px solid #ff0033" : "1px solid #00ff99",
+                borderRadius: "10px",
+                color: "#fff"
+              }}
+            >
+              <div>Type : {mediaInfo.type}</div>
+              <div>Taille : {mediaInfo.sizeMB} MB / max {MAX_FILE_MB} MB</div>
+
+              {mediaInfo.duration && <div>Durée : {mediaInfo.duration}s</div>}
+
+              <div>Position estimée dans ce monitor : #{mediaInfo.position}</div>
+              <div>Temps moyen par contenu : {mediaInfo.cycleSeconds}s</div>
+              <div>Attente estimée avant diffusion : {mediaInfo.estimatedWait}s</div>
+
+              <div
+                style={{
+                  marginTop: "10px",
+                  color: mediaInfo.tooHeavy ? "#ff0033" : "#00ff99",
+                  fontWeight: "bold"
+                }}
+              >
+                {mediaInfo.tooHeavy
+                  ? "Fichier trop lourd. Coupe ou compresse avant upload."
+                  : "Compatible Meyden Monitor."}
+              </div>
             </div>
           )}
 
