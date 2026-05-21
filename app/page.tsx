@@ -15,6 +15,7 @@ export default function Home() {
   const [logs, setLogs] = useState<any[]>([])
   const [contents, setContents] = useState<any[]>([])
   const [monitorSystem, setMonitorSystem] = useState<any>(null)
+  const [testerActivities, setTesterActivities] = useState<any[]>([])
 
   const [activeMonitor, setActiveMonitor] = useState("fans")
   const [currentIndex, setCurrentIndex] = useState(0)
@@ -32,6 +33,7 @@ export default function Home() {
   const [watchStart, setWatchStart] = useState<number | null>(null)
   const [alreadyTracked, setAlreadyTracked] = useState(false)
   const [showFounderPanel, setShowFounderPanel] = useState(true)
+  const [showTestersPanel, setShowTestersPanel] = useState(true)
 
   const mediaRef = useRef<HTMLVideoElement | HTMLAudioElement | null>(null)
 
@@ -52,36 +54,17 @@ export default function Home() {
 
     const channel = supabase
       .channel("meyden-realtime-engine")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "monitor_content" },
-        () => {
-          refreshContentOnly()
-        }
-      )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "live_activity_logs" },
-        () => {
-          refreshLogsOnly()
-        }
-      )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "watchtime_events" },
-        () => {
-          refreshContentOnly()
-          refreshLogsOnly()
-        }
-      )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "tuned_on_events" },
-        () => {
-          refreshContentOnly()
-          refreshLogsOnly()
-        }
-      )
+      .on("postgres_changes", { event: "*", schema: "public", table: "monitor_content" }, refreshContentOnly)
+      .on("postgres_changes", { event: "*", schema: "public", table: "live_activity_logs" }, refreshLogsOnly)
+      .on("postgres_changes", { event: "*", schema: "public", table: "watchtime_events" }, () => {
+        refreshContentOnly()
+        refreshLogsOnly()
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "tuned_on_events" }, () => {
+        refreshContentOnly()
+        refreshLogsOnly()
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "tester_activity" }, refreshTesterActivities)
       .subscribe()
 
     return () => {
@@ -120,7 +103,18 @@ export default function Home() {
     if (!currentContent) return
     setWatchStart(Date.now())
     setAlreadyTracked(false)
+    registerTesterActivity("watching")
   }, [currentContent])
+
+  useEffect(() => {
+    if (!user) return
+
+    const heartbeat = setInterval(() => {
+      registerTesterActivity("active")
+    }, 30000)
+
+    return () => clearInterval(heartbeat)
+  }, [user, activeMonitor, currentContent])
 
   function goNextContent() {
     setCurrentIndex((prev) => {
@@ -143,37 +137,63 @@ export default function Home() {
     await refreshContentOnly()
     await refreshLogsOnly()
     await refreshMonitorSystem()
+    await refreshTesterActivities()
     setLoading(false)
   }
 
   async function refreshContentOnly() {
-    const { data: contentData } = await supabase
+    const { data } = await supabase
       .from("monitor_content")
       .select("*")
       .order("promotion_score", { ascending: false })
       .limit(150)
 
-    setContents(contentData || [])
+    setContents(data || [])
   }
 
   async function refreshLogsOnly() {
-    const { data: logsData } = await supabase
+    const { data } = await supabase
       .from("live_activity_logs")
       .select("*")
       .order("created_at", { ascending: false })
       .limit(30)
 
-    setLogs(logsData || [])
+    setLogs(data || [])
   }
 
   async function refreshMonitorSystem() {
-    const { data: monitorData } = await supabase
+    const { data } = await supabase
       .from("monitor_system")
       .select("*")
       .eq("id", "main")
       .single()
 
-    setMonitorSystem(monitorData)
+    setMonitorSystem(data)
+  }
+
+  async function refreshTesterActivities() {
+    const { data } = await supabase
+      .from("tester_activity")
+      .select("*")
+      .order("last_seen", { ascending: false })
+      .limit(50)
+
+    setTesterActivities(data || [])
+  }
+
+  async function registerTesterActivity(action: string) {
+    if (!user) return
+
+    await supabase.from("tester_activity").insert({
+      user_id: user.id,
+      email: user.email,
+      current_monitor: activeMonitor,
+      current_content_id: currentContent?.id || null,
+      current_content_title: currentContent?.title || "Aucun contenu",
+      action,
+      seconds_active: watchStart ? Math.floor((Date.now() - watchStart) / 1000) : 0,
+      last_seen: new Date().toISOString()
+    })
   }
 
   function analyzeMedia(file: File | null) {
@@ -228,9 +248,44 @@ export default function Home() {
       totalTunedOn: contents.reduce((sum, item) => sum + Number(item.tuned_on || 0), 0),
       totalViews: contents.reduce((sum, item) => sum + Number(item.views || 0), 0),
       totalWatchtime: contents.reduce((sum, item) => sum + Number(item.watchtime_seconds || 0), 0),
-      totalCoinsGenerated: contents.reduce((sum, item) => sum + Number(item.coins_generated || 0), 0)
+      totalCoinsGenerated: contents.reduce((sum, item) => sum + Number(item.coins_generated || 0), 0),
+      activeTesters: new Set(
+        testerActivities
+          .filter((item) => new Date(item.last_seen).getTime() > Date.now() - 5 * 60 * 1000)
+          .map((item) => item.user_id)
+      ).size
     }
-  }, [contents])
+  }, [contents, testerActivities])
+
+  const testerStats = useMemo(() => {
+    const grouped: Record<string, any> = {}
+
+    testerActivities.forEach((item) => {
+      const key = item.user_id || item.email || "unknown"
+
+      if (!grouped[key]) {
+        grouped[key] = {
+          email: item.email || "Utilisateur inconnu",
+          events: 0,
+          seconds: 0,
+          lastMonitor: item.current_monitor,
+          lastContent: item.current_content_title,
+          lastSeen: item.last_seen
+        }
+      }
+
+      grouped[key].events += 1
+      grouped[key].seconds += Number(item.seconds_active || 0)
+
+      if (new Date(item.last_seen).getTime() > new Date(grouped[key].lastSeen).getTime()) {
+        grouped[key].lastMonitor = item.current_monitor
+        grouped[key].lastContent = item.current_content_title
+        grouped[key].lastSeen = item.last_seen
+      }
+    })
+
+    return Object.values(grouped).sort((a: any, b: any) => b.seconds - a.seconds)
+  }, [testerActivities])
 
   async function trackWatchtime(completed = false) {
     if (!user || !currentContent || !watchStart || alreadyTracked) return
@@ -276,6 +331,8 @@ export default function Home() {
         module: "Meyden Watchtime Engine",
         details: `${currentContent.title} | ${watchedSeconds}s | rétention ${retention}%`
       })
+
+      await registerTesterActivity(completed ? "completed" : "watchtime")
 
       setAlreadyTracked(true)
     } catch (err) {
@@ -434,6 +491,8 @@ export default function Home() {
         details: `${newTitle.trim()} envoyé dans ${activeMonitor}`
       })
 
+      await registerTesterActivity("upload")
+
       setUploadStatus("Upload réussi dans Meyden Monitor.")
       setUploading(false)
       setNewTitle("")
@@ -504,6 +563,8 @@ export default function Home() {
       module: "Meyden Monitor",
       details: `Tuned On contenu ${contentId}`
     })
+
+    await registerTesterActivity("tuned_on")
   }
 
   if (loading) return <main style={loadingStyle}>Chargement Meyden OS...</main>
@@ -543,13 +604,14 @@ export default function Home() {
             <div>Contenus : {monitorSystem.total_active_contents}</div>
             <div>Utilisateurs live : {monitorSystem.total_active_users}</div>
             <div>Temps/contenu : {monitorSystem.average_seconds_per_content}s</div>
+            <div>Testeurs actifs : {stats.activeTesters}</div>
           </div>
         )}
       </section>
 
       <section style={{ padding: "40px" }}>
         <h1 style={{ color: "#ff6600", fontSize: "52px" }}>MEYDEN MONITOR</h1>
-        <p style={{ color: "#999" }}>Diffusion continue adaptative + Realtime Engine</p>
+        <p style={{ color: "#999" }}>Diffusion continue adaptative + Realtime Testers Panel</p>
 
         {currentContent ? (
           <section style={streamBoxStyle}>
@@ -621,6 +683,59 @@ export default function Home() {
           </section>
         )}
 
+        <section style={testersBoxStyle}>
+          <div style={founderHeaderStyle}>
+            <h2 style={{ color: "#ff6600" }}>Testers Live Panel</h2>
+            <button onClick={() => setShowTestersPanel(!showTestersPanel)} style={buttonDark}>
+              {showTestersPanel ? "Masquer" : "Afficher"}
+            </button>
+          </div>
+
+          {showTestersPanel && (
+            <>
+              <div style={founderStatsStyle}>
+                <div>Testeurs actifs 5 min : {stats.activeTesters}</div>
+                <div>Événements récents : {testerActivities.length}</div>
+              </div>
+
+              <h3 style={{ color: "#ff6600", marginTop: "20px" }}>Classement testeurs</h3>
+
+              <div style={{ display: "grid", gap: "12px" }}>
+                {testerStats.slice(0, 10).map((tester: any) => (
+                  <div key={tester.email} style={testerItemStyle}>
+                    <strong>{tester.email}</strong>
+                    <div style={{ color: "#999", fontSize: "14px" }}>
+                      Monitor : {tester.lastMonitor || "n/a"} | Contenu : {tester.lastContent || "n/a"}
+                    </div>
+                    <div style={{ color: "#999", fontSize: "14px" }}>
+                      Activité : {tester.events} événements | Watchtime estimé : {tester.seconds}s
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <h3 style={{ color: "#ff6600", marginTop: "20px" }}>Activité récente</h3>
+
+              <div style={{ display: "grid", gap: "10px" }}>
+                {testerActivities.slice(0, 20).map((activity) => (
+                  <div key={activity.id} style={testerItemStyle}>
+                    <strong>{activity.email}</strong>
+                    <div style={{ color: "#999", fontSize: "14px" }}>
+                      Action : {activity.action} | Monitor : {activity.current_monitor}
+                    </div>
+                    <div style={{ color: "#999", fontSize: "14px" }}>
+                      Contenu : {activity.current_content_title}
+                    </div>
+                    <div style={{ color: "#999", fontSize: "14px" }}>
+                      Actif : {activity.seconds_active || 0}s | Last seen : {activity.last_seen}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </section>
+
         <section style={founderBoxStyle}>
           <div style={founderHeaderStyle}>
             <h2 style={{ color: "#ff6600" }}>Fondateur Panel v1 — Realtime</h2>
@@ -649,11 +764,7 @@ export default function Home() {
 
                     <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "12px" }}>
                       {MONITORS.map((monitor) => (
-                        <button
-                          key={monitor}
-                          onClick={() => founderForceMonitor(item.id, monitor)}
-                          style={smallButtonStyle}
-                        >
+                        <button key={monitor} onClick={() => founderForceMonitor(item.id, monitor)} style={smallButtonStyle}>
                           → {monitor}
                         </button>
                       ))}
@@ -730,6 +841,7 @@ export default function Home() {
         <section style={statsGridStyle}>
           <Stat label="Total contenus" value={stats.totalContents} />
           <Stat label="Total actifs" value={stats.totalActive} />
+          <Stat label="Testeurs actifs" value={stats.activeTesters} />
           <Stat label="Total Tuned On" value={stats.totalTunedOn} />
           <Stat label="Total Views" value={stats.totalViews} />
           <Stat label="Watchtime" value={stats.totalWatchtime} />
@@ -781,9 +893,11 @@ const monitorButtonStyle: CSSProperties = { border: "1px solid #ff6600", color: 
 const systemLineStyle: CSSProperties = { marginTop: "15px", color: "#999", display: "flex", gap: "25px", flexWrap: "wrap" }
 const streamBoxStyle: CSSProperties = { background: "#080808", borderRadius: "20px", marginBottom: "30px", overflow: "hidden", border: "1px solid #222" }
 const founderBoxStyle: CSSProperties = { background: "#090909", padding: "25px", borderRadius: "20px", marginBottom: "30px", border: "1px solid rgba(255,102,0,.35)" }
+const testersBoxStyle: CSSProperties = { background: "#071010", padding: "25px", borderRadius: "20px", marginBottom: "30px", border: "1px solid rgba(0,255,153,.35)" }
 const founderHeaderStyle: CSSProperties = { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "15px", flexWrap: "wrap" }
 const founderStatsStyle: CSSProperties = { display: "flex", gap: "20px", color: "#999", flexWrap: "wrap" }
 const founderItemStyle: CSSProperties = { background: "#111", padding: "15px", borderRadius: "14px", border: "1px solid #222" }
+const testerItemStyle: CSSProperties = { background: "#101818", padding: "15px", borderRadius: "14px", border: "1px solid #1d3b33" }
 const uploadBoxStyle: CSSProperties = { background: "#080808", padding: "30px", borderRadius: "20px", marginBottom: "30px" }
 const inputStyle: CSSProperties = { width: "100%", padding: "16px", marginTop: "20px", marginBottom: "20px", background: "#111", color: "#fff", border: "1px solid #ff6600", borderRadius: "10px", boxSizing: "border-box" }
 const buttonRowStyle: CSSProperties = { display: "flex", gap: "10px", flexWrap: "wrap" }
