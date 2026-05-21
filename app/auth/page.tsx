@@ -17,12 +17,15 @@ const MONITORS = [
 
 export default function Home() {
   const [user, setUser] = useState<any>(null)
+  const [profile, setProfile] = useState<any>(null)
   const [loading, setLoading] = useState(true)
 
   const [logs, setLogs] = useState<any[]>([])
   const [contents, setContents] = useState<any[]>([])
   const [monitorSystem, setMonitorSystem] = useState<any>(null)
-  const [testerActivities, setTesterActivities] = useState<any[]>([])
+
+  const [livePresence, setLivePresence] = useState<any[]>([])
+  const [analyticsHistory, setAnalyticsHistory] = useState<any[]>([])
 
   const [activeMonitor, setActiveMonitor] = useState("fans")
   const [currentIndex, setCurrentIndex] = useState(0)
@@ -40,9 +43,6 @@ export default function Home() {
   const [watchStart, setWatchStart] = useState<number | null>(null)
   const [alreadyTracked, setAlreadyTracked] = useState(false)
 
-  const [showFounderPanel, setShowFounderPanel] = useState(true)
-  const [showTestersPanel, setShowTestersPanel] = useState(true)
-
   const mediaRef = useRef<HTMLVideoElement | HTMLAudioElement | null>(null)
 
   const filteredContents = useMemo(() => {
@@ -55,6 +55,10 @@ export default function Home() {
 
   const currentContent = filteredContents[currentIndex]
 
+  const isFounder =
+    profile?.role === "fondateur" ||
+    profile?.role === "admin"
+
   useEffect(() => {
     checkUser()
   }, [])
@@ -63,7 +67,7 @@ export default function Home() {
     if (!user) return
 
     const channel = supabase
-      .channel("meyden-realtime-engine")
+      .channel("meyden-presence-engine-v2")
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "monitor_content" },
@@ -73,16 +77,16 @@ export default function Home() {
       )
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "live_activity_logs" },
+        { event: "*", schema: "public", table: "live_presence" },
         () => {
-          refreshLogsOnly()
+          refreshLivePresence()
         }
       )
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "tester_activity" },
+        { event: "*", schema: "public", table: "founder_analytics_history" },
         () => {
-          refreshTesterActivities()
+          refreshAnalyticsHistory()
         }
       )
       .subscribe()
@@ -105,6 +109,7 @@ export default function Home() {
         : 15
 
     const timer = setTimeout(async () => {
+      await trackWatchtime(false)
       goNextContent()
     }, seconds * 1000)
 
@@ -113,7 +118,8 @@ export default function Home() {
     currentIndex,
     filteredContents.length,
     activeMonitor,
-    monitorSystem
+    monitorSystem,
+    watchStart
   ])
 
   useEffect(() => {
@@ -128,8 +134,18 @@ export default function Home() {
 
     setWatchStart(Date.now())
     setAlreadyTracked(false)
-    registerTesterActivity("watching")
+    registerLivePresence("watching")
   }, [currentContent])
+
+  useEffect(() => {
+    if (!user) return
+
+    const heartbeat = setInterval(() => {
+      registerLivePresence("active")
+    }, 30000)
+
+    return () => clearInterval(heartbeat)
+  }, [user, profile, activeMonitor, currentContent, watchStart])
 
   function goNextContent() {
     setCurrentIndex((prev) => {
@@ -153,12 +169,44 @@ export default function Home() {
 
     setUser(session.user)
 
+    await ensureProfile(session.user)
     await refreshContentOnly()
-    await refreshLogsOnly()
     await refreshMonitorSystem()
-    await refreshTesterActivities()
+    await refreshLivePresence()
+    await refreshAnalyticsHistory()
 
     setLoading(false)
+  }
+
+  async function ensureProfile(activeUser: any) {
+    const { data } = await supabase
+      .from("profiles")
+      .select("*")
+      .eq("id", activeUser.id)
+      .maybeSingle()
+
+    if (data) {
+      setProfile(data)
+      return
+    }
+
+    const fallbackRole = "testeur"
+
+    const publicName =
+      activeUser.email?.split("@")[0] || "Testeur Meyden"
+
+    const { data: inserted } = await supabase
+      .from("profiles")
+      .insert({
+        id: activeUser.id,
+        email: activeUser.email,
+        public_name: publicName,
+        role: fallbackRole
+      })
+      .select("*")
+      .single()
+
+    setProfile(inserted)
   }
 
   async function refreshContentOnly() {
@@ -166,19 +214,9 @@ export default function Home() {
       .from("monitor_content")
       .select("*")
       .order("promotion_score", { ascending: false })
-      .limit(150)
+      .limit(200)
 
     setContents(data || [])
-  }
-
-  async function refreshLogsOnly() {
-    const { data } = await supabase
-      .from("live_activity_logs")
-      .select("*")
-      .order("created_at", { ascending: false })
-      .limit(30)
-
-    setLogs(data || [])
   }
 
   async function refreshMonitorSystem() {
@@ -191,23 +229,39 @@ export default function Home() {
     setMonitorSystem(data)
   }
 
-  async function refreshTesterActivities() {
+  async function refreshLivePresence() {
     const { data } = await supabase
-      .from("tester_activity")
+      .from("live_presence")
       .select("*")
       .order("last_seen", { ascending: false })
-      .limit(75)
+      .limit(100)
 
-    setTesterActivities(data || [])
+    setLivePresence(data || [])
   }
 
-  async function registerTesterActivity(action: string) {
+  async function refreshAnalyticsHistory() {
+    const { data } = await supabase
+      .from("founder_analytics_history")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(25)
+
+    setAnalyticsHistory(data || [])
+  }
+
+  async function registerLivePresence(action: string) {
     if (!user) return
 
-    await supabase.from("tester_activity").insert({
+    await supabase.from("live_presence").insert({
       user_id: user.id,
       email: user.email,
+      public_name:
+        profile?.public_name ||
+        user.email?.split("@")[0] ||
+        "Testeur Meyden",
+      role: profile?.role || "testeur",
       current_monitor: activeMonitor,
+      current_content_id: currentContent?.id || null,
       current_content_title:
         currentContent?.title || "Aucun contenu",
       action,
@@ -218,50 +272,38 @@ export default function Home() {
     })
   }
 
-  const stats = useMemo(() => {
-    const activeTesterIds = new Set(
-      testerActivities
-        .filter(
-          (item) =>
-            new Date(item.last_seen).getTime() >
-            Date.now() - 5 * 60 * 1000
-        )
-        .map((item) => item.user_id)
+  async function trackWatchtime(completed = false) {
+    if (
+      !user ||
+      !currentContent ||
+      !watchStart ||
+      alreadyTracked
+    ) return
+
+    const watchedSeconds = Math.max(
+      1,
+      Math.floor((Date.now() - watchStart) / 1000)
     )
 
-    return {
-      totalContents: contents.length,
-      totalTunedOn: contents.reduce(
-        (sum, item) => sum + Number(item.tuned_on || 0),
-        0
-      ),
-      totalViews: contents.reduce(
-        (sum, item) => sum + Number(item.views || 0),
-        0
-      ),
-      totalWatchtime: contents.reduce(
-        (sum, item) =>
-          sum + Number(item.watchtime_seconds || 0),
-        0
-      ),
-      activeTesters: activeTesterIds.size
-    }
-  }, [contents, testerActivities])
-
-  function analyzeMedia(file: File | null) {
-    if (!file) {
-      setMediaInfo(null)
-      return
-    }
-
-    const sizeMB = file.size / 1024 / 1024
-
-    setMediaInfo({
-      name: file.name,
-      sizeMB: sizeMB.toFixed(2),
-      type: file.type,
-      tooHeavy: file.size > MAX_FILE_BYTES
+    await supabase.from("watchtime_events").insert({
+      content_id: currentContent.id,
+      user_id: user.id,
+      seconds_watched: watchedSeconds,
+      completed
     })
+
+    await supabase
+      .from("monitor_content")
+      .update({
+        watchtime_seconds:
+          Number(currentContent.watchtime_seconds || 0) +
+          watchedSeconds,
+        promotion_score:
+          Number(currentContent.promotion_score || 0) + 5
+      })
+      .eq("id", currentContent.id)
+
+    setAlreadyTracked(true)
   }
 
   async function uploadMedia() {
@@ -323,8 +365,6 @@ export default function Home() {
       coins_generated: 0
     })
 
-    await registerTesterActivity("upload")
-
     setUploadStatus("Upload réussi")
     setUploading(false)
     setNewTitle("")
@@ -333,7 +373,11 @@ export default function Home() {
   }
 
   if (loading) {
-    return <main style={loadingStyle}>Chargement Meyden OS...</main>
+    return (
+      <main style={loadingStyle}>
+        Chargement Meyden OS...
+      </main>
+    )
   }
 
   return (
@@ -358,40 +402,12 @@ export default function Home() {
 
       <section style={{ padding: "40px" }}>
         <h1 style={{ color: "#ff6600", fontSize: "52px" }}>
-          MEYDEN MONITOR
+          MEYDEN PRESENCE ENGINE V2
         </h1>
 
-        <section style={testersBoxStyle}>
-          <div style={founderHeaderStyle}>
-            <h2 style={{ color: "#00ff99" }}>
-              Testers Live Panel
-            </h2>
-          </div>
-
-          <div style={founderStatsStyle}>
-            <div>Testeurs actifs : {stats.activeTesters}</div>
-            <div>Contenus : {stats.totalContents}</div>
-            <div>Views : {stats.totalViews}</div>
-            <div>Watchtime : {stats.totalWatchtime}</div>
-          </div>
-
-          <div style={{ display: "grid", gap: "12px", marginTop: "20px" }}>
-            {testerActivities.slice(0, 15).map((activity) => (
-              <div key={activity.id} style={testerItemStyle}>
-                <strong>{activity.email}</strong>
-                <div style={{ color: "#999", fontSize: "14px" }}>
-                  Monitor : {activity.current_monitor}
-                </div>
-                <div style={{ color: "#999", fontSize: "14px" }}>
-                  Contenu : {activity.current_content_title}
-                </div>
-                <div style={{ color: "#999", fontSize: "14px" }}>
-                  Action : {activity.action}
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
+        <p style={{ color: "#999" }}>
+          Présence live + watchtime + analytics fondateur.
+        </p>
       </section>
     </main>
   )
@@ -411,7 +427,8 @@ const loadingStyle: CSSProperties = {
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
-  fontSize: "24px"
+  fontSize: "24px",
+  fontFamily: "Arial"
 }
 
 const stickyStyle: CSSProperties = {
@@ -436,31 +453,4 @@ const monitorButtonStyle: CSSProperties = {
   borderRadius: "10px",
   cursor: "pointer"
 }
-
-const founderHeaderStyle: CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "center"
-}
-
-const founderStatsStyle: CSSProperties = {
-  display: "flex",
-  gap: "20px",
-  flexWrap: "wrap",
-  marginTop: "20px"
-}
-
-const testersBoxStyle: CSSProperties = {
-  background: "#071010",
-  padding: "25px",
-  borderRadius: "20px",
-  marginTop: "30px",
-  border: "1px solid rgba(0,255,153,.35)"
-}
-
-const testerItemStyle: CSSProperties = {
-  background: "#101818",
-  padding: "15px",
-  borderRadius: "14px",
-  border: "1px solid #1d3b33"
-}
+```
